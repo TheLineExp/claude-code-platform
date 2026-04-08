@@ -1,0 +1,38 @@
+{
+  "$schema": "./platform.schema.json",
+  "version": "1.0.0",
+  "project": {
+    "name": "my-project",
+    "repo": "org/my-project",
+    "repoDir": "my-project"
+  },
+  "branches": {
+    "production": "main",
+    "staging": "staging",
+    "protected": ["main", "staging"],
+    "featurePrefix": "feature/",
+    "ownerPrefixes": ["mk"]
+  },
+  "agents": {
+    "maxWindows": 3,
+    "mergePolicy": "block-all"
+  },
+  "testing": {
+    "command": "npm test",
+    "runner": "",
+    "coverageThreshold": 50
+  },
+  "deployment": {
+    "githubOrg": "",
+    "githubRepo": "",
+    "stagingUrl": "",
+    "productionUrl": "",
+    "healthEndpoint": "/health"
+  },
+  "security": {
+    "secretPatterns": [".env", ".env.*", "credentials*", "*secret*", "*.pem", "*.key"]
+  },
+  "permissions": {
+    "preset": "standard"
+  }
+}

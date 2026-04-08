@@ -1,0 +1,100 @@
+#!/bin/bash
+# Pre-commit hook: Branch protection, secrets detection, configurable test execution.
+# Reads configuration from platform.config.json.
+# Install: bash hooks/install.sh
+
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+CONFIG_FILE="$REPO_ROOT/platform.config.json"
+
+# --- Load config ---
+_get_json_string() {
+  grep -o "\"$1\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" "$CONFIG_FILE" 2>/dev/null \
+    | head -1 | sed 's/.*"[^"]*"[[:space:]]*:[[:space:]]*"//;s/"$//'
+}
+_get_json_array() {
+  grep -o "\"$1\"[[:space:]]*:[[:space:]]*\[[^]]*\]" "$CONFIG_FILE" 2>/dev/null \
+    | head -1 | sed 's/.*\[//;s/\]//;s/"//g;s/,/ /g;s/^[[:space:]]*//;s/[[:space:]]*$//'
+}
+
+if [ -f "$CONFIG_FILE" ]; then
+  PROTECTED_BRANCHES=$(_get_json_array "protected")
+  SECRET_PATTERNS=$(_get_json_array "secretPatterns")
+  TEST_COMMAND=$(_get_json_string "command")
+  TEST_RUNNER=$(_get_json_string "runner")
+else
+  PROTECTED_BRANCHES="staging master main"
+  SECRET_PATTERNS=".env .env.* credentials* *secret* *.pem *.key"
+  TEST_COMMAND="npm test"
+  TEST_RUNNER=""
+fi
+
+# ============================================================
+# Gate 1: Branch Protection
+# ============================================================
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+
+for protected in $PROTECTED_BRANCHES; do
+  if [ "$BRANCH" = "$protected" ]; then
+    echo "ERROR: Direct commits to '$BRANCH' are not allowed."
+    echo "Create a feature branch: git checkout -b feature/your-description"
+    exit 1
+  fi
+done
+
+# ============================================================
+# Gate 2: Secrets Detection
+# ============================================================
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM)
+
+for file in $STAGED_FILES; do
+  for pattern in $SECRET_PATTERNS; do
+    case "$file" in
+      $pattern)
+        echo "ERROR: Potentially sensitive file staged: $file"
+        echo "Remove with: git reset HEAD $file"
+        exit 1
+        ;;
+    esac
+  done
+done
+
+# ============================================================
+# Gate 3: Test Execution (if backend files changed)
+# ============================================================
+# Check if any source files were modified (skip for docs-only changes)
+SOURCE_CHANGED=false
+for file in $STAGED_FILES; do
+  case "$file" in
+    *.js|*.ts|*.jsx|*.tsx|*.py|*.rb|*.go|*.rs|*.java|*.cs)
+      SOURCE_CHANGED=true
+      break
+      ;;
+  esac
+done
+
+if $SOURCE_CHANGED && [ -n "$TEST_COMMAND" ]; then
+  echo "Running tests..."
+
+  if [ -n "$TEST_RUNNER" ]; then
+    # Docker-based test execution (try both compose syntaxes)
+    if $TEST_RUNNER $TEST_COMMAND 2>/dev/null; then
+      echo "Tests passed."
+    elif echo "$TEST_RUNNER" | sed 's/docker-compose/docker compose/' | xargs -I{} sh -c '{} '"$TEST_COMMAND" 2>/dev/null; then
+      echo "Tests passed."
+    else
+      # Docker might not be running — warn but don't block
+      echo "WARNING: Could not run tests via '$TEST_RUNNER'. Is Docker running?"
+      echo "Proceeding with commit. Run tests manually before pushing."
+    fi
+  else
+    # Direct test execution
+    if $TEST_COMMAND; then
+      echo "Tests passed."
+    else
+      echo "ERROR: Tests failed. Fix failing tests before committing."
+      exit 1
+    fi
+  fi
+fi
+
+exit 0

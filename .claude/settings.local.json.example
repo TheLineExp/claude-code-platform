@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git push origin *)",
+      "Bash(docker *)",
+      "Bash(curl *)",
+      "Bash(az *)",
+      "Bash(gh *)"
+    ]
+  }
+}

@@ -1,0 +1,68 @@
+#!/bin/bash
+# Verify the current branch is registered in active-work.md before committing.
+# Searches both the current repo and the main repo (for worktree support).
+# Warns about stale registrations (>7 days old).
+# Exit 2 = block, Exit 0 = allow
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/_parse-input.sh"
+
+# Fast path: only check on git commit
+$NEEDS_GIT_CHECK || exit 0
+echo "$COMMAND" | grep -qE '^git commit\b' || exit 0
+
+source "$SCRIPT_DIR/_config.sh"
+
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+
+# Skip check for non-feature branches
+if ! echo "$BRANCH" | grep -q "^${FEATURE_PREFIX}"; then
+  exit 0
+fi
+
+# Find active-work.md — check current repo first, then main repo (worktree support)
+ACTIVE_WORK=""
+if [ -f "$REPO_ROOT/.claude/active-work.md" ]; then
+  ACTIVE_WORK="$REPO_ROOT/.claude/active-work.md"
+fi
+
+# If in a worktree, also check the main repo
+GIT_COMMON=$(git rev-parse --git-common-dir 2>/dev/null)
+if [ -n "$GIT_COMMON" ] && [ "$GIT_COMMON" != ".git" ]; then
+  MAIN_REPO=$(dirname "$GIT_COMMON")
+  if [ -f "$MAIN_REPO/.claude/active-work.md" ]; then
+    ACTIVE_WORK="$MAIN_REPO/.claude/active-work.md"
+  fi
+fi
+
+if [ -z "$ACTIVE_WORK" ]; then
+  echo "BLOCKED: No .claude/active-work.md found. Run /letsbuild first to register your work." >&2
+  exit 2
+fi
+
+# Check if branch is registered
+if ! grep -qF "$BRANCH" "$ACTIVE_WORK"; then
+  echo "BLOCKED: Branch '$BRANCH' is not registered in active-work.md." >&2
+  echo "" >&2
+  echo "Current registrations:" >&2
+  grep '^|' "$ACTIVE_WORK" | head -10 >&2
+  echo "" >&2
+  echo "Run /letsbuild to register your work, or add a row manually:" >&2
+  echo "| wX | $BRANCH | ../worktree-path | area | $(date +%Y-%m-%d) |" >&2
+  exit 2
+fi
+
+# Warn about stale registrations (>7 days old)
+ENTRY_DATE=$(grep "$BRANCH" "$ACTIVE_WORK" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | tail -1)
+if [ -n "$ENTRY_DATE" ]; then
+  # Cross-platform date calculation (works on macOS and Linux/Git Bash)
+  ENTRY_EPOCH=$(date -d "$ENTRY_DATE" +%s 2>/dev/null || date -jf "%Y-%m-%d" "$ENTRY_DATE" +%s 2>/dev/null || echo 0)
+  NOW_EPOCH=$(date +%s)
+  if [ "$ENTRY_EPOCH" -gt 0 ] 2>/dev/null; then
+    DAYS_OLD=$(( (NOW_EPOCH - ENTRY_EPOCH) / 86400 ))
+    if [ "$DAYS_OLD" -gt 7 ]; then
+      echo "WARNING: Registration for '$BRANCH' is $DAYS_OLD days old. Consider cleaning up if work is complete." >&2
+    fi
+  fi
+fi
+
+exit 0

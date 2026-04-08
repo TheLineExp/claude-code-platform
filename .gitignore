@@ -1,0 +1,13 @@
+# Claude Code Platform
+.claude/settings.local.json
+.claude/plans/
+.context/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temp
+/tmp/
+*.log

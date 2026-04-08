@@ -1,0 +1,36 @@
+{
+  "$schema": "../../platform.schema.json",
+  "version": "1.0.0",
+  "project": {
+    "name": "my-express-app",
+    "repo": "myorg/my-express-app",
+    "repoDir": "my-express-app"
+  },
+  "branches": {
+    "production": "main",
+    "staging": "staging",
+    "protected": ["main", "staging"],
+    "featurePrefix": "feature/",
+    "ownerPrefixes": ["mk"]
+  },
+  "agents": {
+    "maxWindows": 3,
+    "mergePolicy": "block-all"
+  },
+  "testing": {
+    "command": "npm test",
+    "runner": "docker-compose exec backend",
+    "coverageThreshold": 50
+  },
+  "deployment": {
+    "stagingUrl": "https://staging.example.com",
+    "productionUrl": "https://app.example.com",
+    "healthEndpoint": "/health"
+  },
+  "security": {
+    "secretPatterns": [".env", ".env.*", "credentials*", "*secret*", "*.pem", "*.key"]
+  },
+  "permissions": {
+    "preset": "standard"
+  }
+}

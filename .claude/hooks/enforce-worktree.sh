@@ -1,0 +1,59 @@
+#!/bin/bash
+# Block code modifications in the main repo. Agents must work in worktrees.
+# Checks the FILE PATH being edited, not the CWD — so edits to worktree files
+# and other repos are always allowed.
+# Allows: .claude/ file edits (for setup), files outside the main repo, Bash commands
+# Exit 2 = block, Exit 0 = allow
+
+INPUT=$(cat)
+
+# Extract file_path from the tool input JSON
+FILE_PATH=$(echo "$INPUT" | sed -n 's/.*"file_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+
+# No file_path means this is a Bash command — let other hooks handle those
+if [ -z "$FILE_PATH" ]; then
+  exit 0
+fi
+
+# Get the main repo's absolute path
+MAIN_REPO=$(git rev-parse --show-toplevel 2>/dev/null)
+if [ -z "$MAIN_REPO" ]; then
+  exit 0
+fi
+
+# Normalize paths for comparison (Windows paths vs MSYS paths)
+normalize() {
+  local p="$1"
+  # Convert backslashes to forward slashes
+  p="${p//\\//}"
+  # Convert C:/... to /c/... (MSYS-style)
+  if [[ "$p" =~ ^([a-zA-Z]):/ ]]; then
+    local drive="${BASH_REMATCH[1]}"
+    drive=$(echo "$drive" | tr 'A-Z' 'a-z')
+    p="/$drive${p:2}"
+  fi
+  # Remove trailing slash
+  p="${p%/}"
+  echo "$p"
+}
+
+NORM_REPO=$(normalize "$MAIN_REPO")
+NORM_FILE=$(normalize "$FILE_PATH")
+
+# If the file is NOT inside the main repo, allow it
+# (covers worktree dirs, other repos, etc.)
+if [[ "$NORM_FILE" != "$NORM_REPO"/* ]]; then
+  exit 0
+fi
+
+# File IS inside the main repo — allow .claude/ edits (setup, hooks, skills)
+if echo "$NORM_FILE" | grep -qi '/\.claude/'; then
+  exit 0
+fi
+
+# Block all other file edits in the main repo
+echo "BLOCKED: File is inside the main repo (not a worktree)." >&2
+echo "" >&2
+echo "Code edits must happen in your worktree directory." >&2
+echo "Run /letsbuild first to create your worktree, then open Claude Code at that path." >&2
+exit 2

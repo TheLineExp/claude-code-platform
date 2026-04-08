@@ -1,0 +1,130 @@
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+      "WebFetch",
+      "WebSearch",
+      "Bash(npm *)",
+      "Bash(npx *)",
+      "Bash(node *)",
+      "Bash(git status*)",
+      "Bash(git log*)",
+      "Bash(git diff*)",
+      "Bash(git branch*)",
+      "Bash(git checkout *)",
+      "Bash(git switch *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git stash*)",
+      "Bash(git worktree *)",
+      "Bash(git rev-parse *)",
+      "Bash(git merge-tree *)",
+      "Bash(git merge-base *)",
+      "Bash(git remote *)",
+      "Bash(git fetch *)",
+      "Bash(git pull *)",
+      "Bash(git show *)",
+      "Bash(git tag *)",
+      "Bash(git rebase *)",
+      "Bash(git push origin feature/*)",
+      "Bash(git push -u origin feature/*)",
+      "Bash(gh pr create *)",
+      "Bash(gh pr list *)",
+      "Bash(gh pr view *)",
+      "Bash(gh pr status*)",
+      "Bash(gh pr checks *)",
+      "Bash(gh run *)",
+      "Bash(gh workflow *)",
+      "Bash(gh api *)",
+      "Bash(docker-compose *)",
+      "Bash(docker compose *)",
+      "Bash(docker exec *)",
+      "Bash(docker logs *)",
+      "Bash(docker ps*)",
+      "Bash(ls *)",
+      "Bash(ls)",
+      "Bash(cat *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(wc *)",
+      "Bash(mkdir *)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(diff *)",
+      "Bash(sort *)",
+      "Bash(which *)",
+      "Bash(curl -s *)"
+    ],
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(git push --force *)",
+      "Bash(git push -f *)",
+      "Bash(git push --force-with-lease *)",
+      "Bash(git push origin main*)",
+      "Bash(git push origin master*)",
+      "Bash(git push origin staging*)",
+      "Bash(git reset --hard*)",
+      "Bash(git checkout .)",
+      "Bash(git clean *)",
+      "Bash(gh pr merge *)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "bash .claude/hooks/block-protected-branch.sh" },
+          { "type": "command", "command": "bash .claude/hooks/block-no-verify.sh" },
+          { "type": "command", "command": "bash .claude/hooks/block-destructive-git.sh" },
+          { "type": "command", "command": "bash .claude/hooks/block-gh-merge.sh" },
+          { "type": "command", "command": "bash .claude/hooks/block-rebase-interactive.sh" },
+          { "type": "command", "command": "bash .claude/hooks/block-file-redirect.sh" },
+          { "type": "command", "command": "bash .claude/hooks/check-work-registration.sh" },
+          { "type": "command", "command": "bash .claude/hooks/check-branch-prefix.sh" },
+          { "type": "command", "command": "bash .claude/hooks/enforce-worktree.sh" }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          { "type": "command", "command": "bash .claude/hooks/enforce-worktree.sh" }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          { "type": "command", "command": "bash .claude/hooks/enforce-worktree.sh" }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          { "type": "command", "command": "bash .claude/hooks/session-tracker.sh" }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "",
+        "hooks": [
+          { "type": "command", "command": "bash .claude/hooks/error-handler.sh" }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "auto",
+        "hooks": [
+          { "type": "command", "command": "bash .claude/hooks/compact-notifier.sh" }
+        ]
+      }
+    ]
+  }
+}

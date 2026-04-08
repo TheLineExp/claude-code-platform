@@ -1,0 +1,36 @@
+{
+  "$schema": "../../platform.schema.json",
+  "version": "1.0.0",
+  "project": {
+    "name": "my-react-app",
+    "repo": "myorg/my-react-app",
+    "repoDir": "my-react-app"
+  },
+  "branches": {
+    "production": "main",
+    "staging": "staging",
+    "protected": ["main", "staging"],
+    "featurePrefix": "feature/",
+    "ownerPrefixes": ["mk"]
+  },
+  "agents": {
+    "maxWindows": 3,
+    "mergePolicy": "block-all"
+  },
+  "testing": {
+    "command": "npm test",
+    "runner": "",
+    "coverageThreshold": 40
+  },
+  "deployment": {
+    "stagingUrl": "https://staging.example.com",
+    "productionUrl": "https://app.example.com",
+    "healthEndpoint": "/"
+  },
+  "security": {
+    "secretPatterns": [".env", ".env.*", "credentials*", "*secret*"]
+  },
+  "permissions": {
+    "preset": "standard"
+  }
+}

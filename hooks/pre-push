@@ -1,0 +1,50 @@
+#!/bin/bash
+# Pre-push hook: Block direct pushes to protected branches, warn about staging lag.
+# Reads configuration from platform.config.json.
+# Install: bash hooks/install.sh
+
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+CONFIG_FILE="$REPO_ROOT/platform.config.json"
+
+# --- Load config ---
+_get_json_string() {
+  grep -o "\"$1\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" "$CONFIG_FILE" 2>/dev/null \
+    | head -1 | sed 's/.*"[^"]*"[[:space:]]*:[[:space:]]*"//;s/"$//'
+}
+_get_json_array() {
+  grep -o "\"$1\"[[:space:]]*:[[:space:]]*\[[^]]*\]" "$CONFIG_FILE" 2>/dev/null \
+    | head -1 | sed 's/.*\[//;s/\]//;s/"//g;s/,/ /g;s/^[[:space:]]*//;s/[[:space:]]*$//'
+}
+
+if [ -f "$CONFIG_FILE" ]; then
+  PROTECTED_BRANCHES=$(_get_json_array "protected")
+  STAGING=$(_get_json_string "staging")
+else
+  PROTECTED_BRANCHES="staging master main"
+  STAGING="staging"
+fi
+: "${STAGING:=staging}"
+
+while read -r LOCAL_REF LOCAL_OID REMOTE_REF REMOTE_OID; do
+  REMOTE_BRANCH=$(echo "$REMOTE_REF" | sed 's|refs/heads/||')
+
+  # Block pushes to protected branches
+  for protected in $PROTECTED_BRANCHES; do
+    if [ "$REMOTE_BRANCH" = "$protected" ]; then
+      echo "ERROR: Direct push to '$REMOTE_BRANCH' is not allowed."
+      echo "Create a PR instead: gh pr create --base $REMOTE_BRANCH"
+      exit 1
+    fi
+  done
+
+  # Warn if feature branch is behind staging
+  if echo "$REMOTE_BRANCH" | grep -q "^feature/"; then
+    BEHIND=$(git rev-list --count HEAD.."origin/$STAGING" 2>/dev/null || echo 0)
+    if [ "$BEHIND" -gt 5 ]; then
+      echo "WARNING: Your branch is $BEHIND commits behind $STAGING."
+      echo "Consider rebasing: git pull --rebase origin $STAGING"
+    fi
+  fi
+done
+
+exit 0
