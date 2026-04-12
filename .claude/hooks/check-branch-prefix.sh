@@ -28,6 +28,28 @@ for owner in $OWNER_PREFIXES; do
   fi
 done
 
+# Allow cross-repo prefix (x1, x2...) when window-id is also cross-repo
+if [[ "$BRANCH_PREFIX" == x* ]]; then
+  WINDOW_ID_FILE=".claude/window-id"
+  if [ -f "$WINDOW_ID_FILE" ]; then
+    WID=$(cat "$WINDOW_ID_FILE" 2>/dev/null | tr -d '[:space:]')
+    if [[ "$WID" == x* ]]; then
+      exit 0
+    fi
+  fi
+fi
+
+# Allow solo prefix when window-id is 's'
+if [ "$BRANCH_PREFIX" = "s" ]; then
+  WINDOW_ID_FILE=".claude/window-id"
+  if [ -f "$WINDOW_ID_FILE" ]; then
+    WID=$(cat "$WINDOW_ID_FILE" 2>/dev/null | tr -d '[:space:]')
+    if [ "$WID" = "s" ]; then
+      exit 0
+    fi
+  fi
+fi
+
 # Check window ID file
 WINDOW_ID_FILE=".claude/window-id"
 if [ ! -f "$WINDOW_ID_FILE" ]; then

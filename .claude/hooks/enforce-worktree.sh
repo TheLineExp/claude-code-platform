@@ -51,6 +51,15 @@ if echo "$NORM_FILE" | grep -qi '/\.claude/'; then
   exit 0
 fi
 
+# Solo mode bypass — when only one agent is active, no worktree needed
+WINDOW_ID_FILE="$NORM_REPO/.claude/window-id"
+if [ -f "$WINDOW_ID_FILE" ]; then
+  WID=$(cat "$WINDOW_ID_FILE" | tr -d '[:space:]')
+  if [ "$WID" = "s" ]; then
+    exit 0
+  fi
+fi
+
 # Block all other file edits in the main repo
 echo "BLOCKED: File is inside the main repo (not a worktree)." >&2
 echo "" >&2

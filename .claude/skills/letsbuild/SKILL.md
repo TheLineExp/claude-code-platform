@@ -3,9 +3,9 @@ name: letsbuild
 description: Safe feature start workflow with multi-agent coordination. Creates an isolated git worktree, assigns window ID, creates feature branch, and registers work. MANDATORY before starting any work. Prevents agents from overwriting each other. Self-healing — cleans up stale state from previous sessions automatically.
 ---
 
-# Let's Build — Worktree-Based Multi-Agent Safe Start
+# Let's Build — Multi-Agent Safe Start (3-Tier)
 
-This skill is **MANDATORY** before starting any coding work. It creates an isolated git worktree so each agent works in its own physical directory — agents cannot overwrite each other's files.
+This skill is **MANDATORY** before starting any coding work. It sets up isolated workspaces so agents cannot overwrite each other's files.
 
 ## When to Use
 
@@ -13,6 +13,34 @@ This skill is **MANDATORY** before starting any coding work. It creates an isola
 - When the user says "let's build", "start working on", or describes a feature to implement
 - Before making ANY code changes
 - **After accepting a plan** — verify worktree status before editing code
+
+## Three Tiers
+
+| Tier | When | Branch Prefix | Worktree? | Window ID |
+|------|------|---------------|-----------|-----------|
+| **1: Cross-Repo** | Feature spans 2+ repos | `x1-`, `x2-` | Only if repo is occupied by another agent | `x1`, `x2` |
+| **2: Single-Repo** | Feature touches 1 repo | `w1-`, `w2-`, `w3-` | Always | `w1`, `w2`, `w3` |
+| **3: Solo** | Zero other agents active anywhere | `s-` | Never | `s` |
+
+### Tier Detection
+
+1. Ask or infer: "Which repos does this feature touch?"
+2. Count active agents across ALL repos (scan `active-work.md` files)
+3. Route:
+   - 2+ repos → **Tier 1**
+   - 1 repo + other agents active → **Tier 2**
+   - 1 repo + zero agents active → offer **Tier 3**
+
+### Tier 1: Cross-Repo
+- Create feature branches with the **same slug** in all affected repos (`feature/x1-slug`)
+- Create worktrees only in repos where another agent is already active
+- Register in each repo's `active-work.md` with `cross-repo:` tag
+- Set `window-id` to `x1`/`x2` in each repo or worktree
+
+### Tier 3: Solo Mode
+- No worktree needed — work directly in the main checkout
+- Set `window-id` to `s` (bypasses `enforce-worktree.sh`)
+- If a second agent starts later, it creates its own worktree
 
 ## Configuration
 
