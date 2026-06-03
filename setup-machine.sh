@@ -45,12 +45,12 @@ say ""
 say "${BOLD}Machine bootstrap${NC}  HOME=$HOME_FS  REPOS_ROOT=$REPOS_ROOT_FS"
 say ""
 
-# --- Helper: backup-then-write ---
+# --- Helper: backup-then-write (handles files AND directories) ---
 backup() {
   local f="$1"
   [ -e "$f" ] || return 0
   local n=1; while [ -e "$f.bak-$n" ]; do n=$((n+1)); done
-  do_or_echo "cp '$f' '$f.bak-$n'"
+  do_or_echo "cp -r '$f' '$f.bak-$n'"
   warn "backed up existing $(basename "$f") -> $(basename "$f").bak-$n"
 }
 
@@ -87,14 +87,18 @@ do_or_echo "cp '$GLOBAL_SRC/statusline-command.sh' '$HOME_FS/.claude/statusline-
 do_or_echo "chmod +x '$HOME_FS/.claude/statusline-command.sh'"
 ok "~/.claude/statusline-command.sh"
 
-# user-global skills: the 4 vendored here + pm from the platform's own .claude/skills
+# user-global skills: the 4 vendored here + pm from the platform's own .claude/skills.
+# Back up any existing same-named skill dir before replacing it, so a rerun /
+# migration never silently discards local customizations.
 for s in "$GLOBAL_SRC"/skills/*/; do
   [ -d "$s" ] || continue
   name="$(basename "$s")"
+  backup "$HOME_FS/.claude/skills/$name"
   do_or_echo "rm -rf '$HOME_FS/.claude/skills/$name' && cp -r '$s' '$HOME_FS/.claude/skills/$name'"
   ok "skill: $name"
 done
 if [ -d "$SCRIPT_DIR/.claude/skills/pm" ]; then
+  backup "$HOME_FS/.claude/skills/pm"
   do_or_echo "rm -rf '$HOME_FS/.claude/skills/pm' && cp -r '$SCRIPT_DIR/.claude/skills/pm' '$HOME_FS/.claude/skills/pm'"
   ok "skill: pm (from platform .claude/skills)"
 fi
