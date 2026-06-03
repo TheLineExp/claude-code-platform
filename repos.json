@@ -1,0 +1,28 @@
+{
+  "_comment": "Multi-repo manifest. setup-machine.sh + setup.sh iterate this to clone, install hooks, scaffold .env, and register graphify. Today: the three FleetManager repos. To target ANY repo set, edit this file — nothing else. 'reposRoot' is where repos are cloned (defaults to the parent of this platform repo if empty).",
+  "reposRoot": "",
+  "graphifyMarkers": ["fleetmanager-reservations", "fleetmanager_v3", "fleetmanager-vouchers"],
+  "repos": [
+    {
+      "name": "reservations",
+      "remote": "TheLineExp/fleetmanager-reservations",
+      "dir": "fleetmanager-reservations",
+      "graphifyAs": "reservations",
+      "envFiles": [".env", "backend/.env.local"]
+    },
+    {
+      "name": "fm-v3",
+      "remote": "TheLineExp/Fleetmanager_V3",
+      "dir": "fleetmanager/Fleetmanager_V3",
+      "graphifyAs": "fm-v3",
+      "envFiles": [".env"]
+    },
+    {
+      "name": "vouchers",
+      "remote": "TheLineExp/fleetmanager-vouchers",
+      "dir": "fleetmanager-vouchers",
+      "graphifyAs": "vouchers",
+      "envFiles": [".env"]
+    }
+  ]
+}

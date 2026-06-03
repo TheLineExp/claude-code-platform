@@ -1,0 +1,122 @@
+{
+  "_comment": "User-global ~/.claude/settings.json TEMPLATE. setup-machine.sh substitutes {{HOME}}, {{REPOS_ROOT}}, and {{REPOS_ROOT_UNIX}}. Do not commit a filled-in copy — it contains machine paths. {{HOME}} and {{REPOS_ROOT}} are forward-slash form (C:/Users/you/...). {{REPOS_ROOT_UNIX}} is the MSYS double-slash form (//c/Users/you/...) used by Read() globs on Git-Bash/Windows.",
+  "permissions": {
+    "allow": [
+      "Read",
+      "Grep",
+      "Glob",
+      "WebFetch",
+      "WebSearch",
+      "Bash(git:*)",
+      "Bash(gh:*)",
+      "Bash(npm:*)",
+      "Bash(npx:*)",
+      "Bash(yarn:*)",
+      "Bash(pnpm:*)",
+      "Bash(bun:*)",
+      "Bash(bunx:*)",
+      "Bash(node:*)",
+      "Bash(python:*)",
+      "Bash(python3:*)",
+      "Bash(docker:*)",
+      "Bash(docker-compose:*)",
+      "Bash(az:*)",
+      "Bash(psql:*)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Bash(jq:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(echo:*)",
+      "Bash(printf:*)",
+      "Bash(pwd)",
+      "Bash(which:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(rg:*)",
+      "Bash(sed:*)",
+      "Bash(awk:*)",
+      "Bash(mkdir:*)",
+      "Bash(touch:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "Bash(chmod:*)",
+      "Bash(tar:*)",
+      "Bash(unzip:*)",
+      "Bash(diff:*)",
+      "Bash(sort:*)",
+      "Bash(uniq:*)",
+      "Bash(wc:*)",
+      "Bash(tr:*)",
+      "Bash(cut:*)",
+      "Bash(xargs:*)",
+      "Bash(tee:*)",
+      "Bash(true)",
+      "Bash(false)",
+      "Bash(env)",
+      "Bash(export:*)",
+      "Bash(source:*)",
+      "Bash(ping:*)",
+      "Bash(nslookup:*)",
+      "Bash(dig:*)",
+      "Bash(ssh:*)",
+      "Bash(scp:*)",
+      "Bash(make:*)",
+      "Bash(prisma:*)",
+      "Bash(MSYS_NO_PATHCONV=1 docker:*)",
+      "Read(//{{REPOS_ROOT_UNIX}}/**)"
+    ],
+    "deny": [
+      "Bash(rm -rf /*)",
+      "Bash(rm -rf ~/*)",
+      "Bash(rm -rf /:*)",
+      "Bash(sudo:*)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git push origin master*)",
+      "Bash(git push origin main*)",
+      "Bash(git push origin +*)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean -f*)",
+      "Bash(git branch -D*)",
+      "Bash(git checkout --*)",
+      "Bash(git restore --source*)",
+      "Bash(gh pr merge*)",
+      "Bash(az containerapp delete*)",
+      "Bash(az group delete*)",
+      "Bash(psql*DROP DATABASE*)",
+      "Bash(psql*DROP TABLE*)",
+      "Bash(psql*TRUNCATE*)",
+      "Bash(docker system prune*)",
+      "Bash(docker volume rm*)",
+      "Bash(npm publish*)",
+      "Bash(npm unpublish*)"
+    ],
+    "defaultMode": "auto",
+    "additionalDirectories": [
+      "{{REPOS_ROOT}}",
+      "{{HOME}}/.claude/plans"
+    ]
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"{{HOME}}/.claude/hooks/graphify-autoquery.js\""
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "bash ~/.claude/statusline-command.sh"
+  },
+  "autoUpdatesChannel": "latest",
+  "skipAutoPermissionPrompt": true,
+  "effortLevel": "max"
+}
