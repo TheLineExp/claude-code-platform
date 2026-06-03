@@ -53,6 +53,8 @@ Born from production use across 3 repos and hundreds of development sessions. Pa
 
 ## Quick Start
 
+### Single repo (per-repo wizard)
+
 ```bash
 # 1. Clone or use as template
 git clone https://github.com/TheLineExp/claude-code-platform.git
@@ -69,6 +71,21 @@ bash setup.sh
 ```
 
 The wizard asks for your project name, branches, test command, deployment URLs, and feature tier — then generates everything.
+
+### Full machine (new PC) — user-global config + every repo
+
+When you're standing up a **fresh machine**, the per-repo wizard isn't enough — it doesn't
+reproduce your user-global `~/.claude` / `~/.codex` / `~/.graphify` config. Two extra scripts
+handle that:
+
+```bash
+bash setup-machine.sh     # user-global: ~/.claude settings/skills/hooks/statusline, ~/.codex, graphify
+bash setup-repos.sh       # clone + git hooks + .env scaffold for every repo in repos.json
+```
+
+`setup-machine.sh` de-hardcodes all machine paths (substitutes your real `HOME`/repos root),
+so the committed templates stay portable. Edit **`repos.json`** to point the whole thing at
+any set of repos. Full step-by-step: **[docs/NEW_PC.md](docs/NEW_PC.md)**.
 
 ## Feature Tiers
 
@@ -159,6 +176,8 @@ See [docs/CUSTOMIZATION.md](docs/CUSTOMIZATION.md) for detailed customization gu
 
 ## Documentation
 
+- [NEW_PC.md](docs/NEW_PC.md) — **Full-machine bootstrap** (new computer, start to finish)
+- [REVIEWS.md](docs/REVIEWS.md) — PR review convention (local Claude + gated Codex, primary/fallback swap)
 - [SETUP.md](docs/SETUP.md) — Detailed setup for each OS
 - [CUSTOMIZATION.md](docs/CUSTOMIZATION.md) — How to add addons, skills, agents
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md) — How the platform works internally

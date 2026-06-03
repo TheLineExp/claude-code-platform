@@ -1,0 +1,25 @@
+# ~/.codex/config.toml — PORTABLE template (the parts worth carrying to a new PC).
+#
+# Everything NOT in this file is regenerated automatically by Codex and must NOT be
+# hand-copied between machines:
+#   - [marketplaces.*], [plugins.*]          -> rebuilt on `codex` install / marketplace sync
+#   - [mcp_servers.*] (AppData bin paths)    -> rebuilt on install (paths contain per-install hashes)
+#   - [projects.'<abs path>'] trust_level    -> set the first time you open Codex in that repo
+#   - [hooks.state.*] trusted_hash           -> set the first time you approve each repo's .codex/hooks.json
+#   - auth.json                              -> created by `codex login` (NEVER commit; see NEW_PC.md)
+#
+# On a new PC: install Codex, run `codex login`, then merge the keys below into the
+# freshly-generated ~/.codex/config.toml (setup-machine.sh does this idempotently).
+
+model = "gpt-5.5"
+model_reasoning_effort = "medium"
+
+[windows]
+sandbox = "elevated"
+
+[features]
+js_repl = false
+
+[desktop]
+conversationDetailMode = "STEPS_COMMANDS"
+ambient-suggestions-enabled = false

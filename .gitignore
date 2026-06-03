@@ -3,6 +3,19 @@
 .claude/plans/
 .context/
 
+# Never commit secrets or filled-in machine configs (templates in platform/global/ are sanitized)
+.credentials.json
+auth.json
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.bak-*
+# Generated graphify artifacts
+graphify-out/
+global-graph.json
+
 # OS
 .DS_Store
 Thumbs.db
