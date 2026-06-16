@@ -25,7 +25,28 @@ It is **separate** from `/feature` (large/undefined projects) and from
 
 ## Backing file (single source of truth)
 
-`C:\Users\MichaelKunz\.claude\todo\backlog.md`
+The list lives in the **git-synced** unified backlog so it spans every dev
+machine. Resolve the location at runtime:
+
+1. Read `~/.claude/backlog-location` — a one-line file written by
+   `setup-machine.sh` holding the absolute path to the backlog dir on THIS
+   machine (the `backlog/` dir inside the `claude-code-platform` repo clone).
+2. The todo list is `<backlog-dir>/TODO.md`.
+3. **Fallback** if `~/.claude/backlog-location` is missing (machine not
+   bootstrapped yet): look for a `claude-code-platform/backlog/TODO.md` under
+   the dirs listed in `~/.claude/settings.json` `additionalDirectories`. If
+   still not found, tell the user to run `bash setup-machine.sh` in the
+   platform repo, and don't silently fall back to a local-only file.
+
+**Cross-machine sync (do this every time):**
+- **Before reading:** `git -C <backlog-dir> pull --ff-only` so you see edits
+  made on other machines. If the pull fails (offline / conflict), warn and
+  proceed with the local copy — never block the user.
+- **After writing:** stage + commit + push just the backlog file:
+  `git -C <backlog-dir> add TODO.md && git -C <backlog-dir> commit -m "todo: <what changed>" && git -C <backlog-dir> push`.
+  The platform repo's `main` is unprotected and these are data-only edits, so a
+  direct push is correct here — do NOT open a PR for routine list edits. If the
+  push fails, tell the user the change is committed locally but unpushed.
 
 Always **Read** it first, operate on it, then **Edit/Write** it back. Never keep
 the list only in the session — it must persist to that file. If the file is
@@ -77,10 +98,11 @@ Item line format:
 
 ## Behavior notes
 
-- This skill is **read-mostly + small targeted edits** — no code changes, no git,
-  no PRs. It only touches the backlog file. If acting on an item turns into real
-  work, that work follows the normal rules (`/letsbuild`, etc.) — `/todo` just
-  tracks it.
+- This skill is **read-mostly + small targeted edits** — no code changes. The
+  only git it does is the backlog-file pull/commit/push for cross-machine sync
+  (above); it never touches product-repo code or opens PRs. If acting on an item
+  turns into real work, that work follows the normal rules (`/letsbuild`, etc.) —
+  `/todo` just tracks it.
 - Keep edits minimal and preserve the file's comments/structure.
 - When the user finishes a piece of parked work elsewhere, proactively offer to
   `/todo done` the matching item.
@@ -88,10 +110,10 @@ Item line format:
 
 ## File format (bootstrap template)
 
-If `~/.claude/todo/backlog.md` does not exist (e.g. a freshly set-up machine),
-create it from this template — an EMPTY backlog with the canonical structure.
-Do **not** seed it with someone else's items; it starts empty and fills as the
-user adds work.
+If `<backlog-dir>/TODO.md` does not exist (e.g. a freshly set-up machine),
+create it from this template — an EMPTY backlog with the canonical structure —
+then commit + push it so other machines pick it up. Do **not** seed it with
+someone else's items; it starts empty and fills as the user adds work.
 
 ```markdown
 <!-- Running QUALITY-SWEEP backlog. Maintained by the /todo skill (~/.claude/skills/todo/SKILL.md).
