@@ -87,8 +87,8 @@ do_or_echo "cp '$GLOBAL_SRC/statusline-command.sh' '$HOME_FS/.claude/statusline-
 do_or_echo "chmod +x '$HOME_FS/.claude/statusline-command.sh'"
 ok "~/.claude/statusline-command.sh"
 
-# user-global skills: the 5 vendored here (graphify, gstack-review, gstack-ship,
-# route, todo) + pm from the platform's own .claude/skills.
+# user-global skills: the 6 vendored here (graphify, gstack-review, gstack-ship,
+# route, todo, feature) + pm from the platform's own .claude/skills.
 # Back up any existing same-named skill dir before replacing it, so a rerun /
 # migration never silently discards local customizations.
 for s in "$GLOBAL_SRC"/skills/*/; do
@@ -103,6 +103,13 @@ if [ -d "$SCRIPT_DIR/.claude/skills/pm" ]; then
   do_or_echo "rm -rf '$HOME_FS/.claude/skills/pm' && cp -r '$SCRIPT_DIR/.claude/skills/pm' '$HOME_FS/.claude/skills/pm'"
   ok "skill: pm (from platform .claude/skills)"
 fi
+
+# unified cross-repo backlog pointer: /todo + /feature read this file to locate
+# the git-synced backlog dir (backlog/FEATURES.md + backlog/TODO.md) inside THIS
+# platform repo clone. Written per-machine so the path resolves anywhere.
+do_or_echo "mkdir -p '$SCRIPT_DIR/backlog'"
+if [ -z "$DRY_RUN" ]; then printf '%s\n' "$SCRIPT_DIR/backlog" > "$HOME_FS/.claude/backlog-location"; fi
+ok "~/.claude/backlog-location -> $SCRIPT_DIR/backlog"
 
 # --- Phase 2: ~/.codex portable keys ---
 say ""
