@@ -18,11 +18,25 @@ _Migrated from `fleetmanager-reservations/docs/FEATURE_REQUESTS.md` on 2026-06-1
 - Add with `/feature add <description>` (size-checked — small/defined work goes to `/todo`).
 - Every request carries a **Repo(s)/area** tag so the cross-repo list stays scannable.
 - `/feature review` re-prioritizes and checks whether items should move to a repo's `MASTER_PLAN.md` or down to `/todo`.
-- FR IDs are a single shared sequence across all repos. Next free ID: **FR-048**.
+- FR IDs are a single shared sequence across all repos. Next free ID: **FR-049**.
 
 ---
 
 ## Open Requests
+
+### FR-048: Fleet Manager Staff Native Mobile App (iOS + Android, Expo)
+- **Repo(s)/area**: cross-repo — new `fleetmanager-mobile` (Expo) + FM V3 backend + reservations backend
+- **Status**: open (in progress — C0 done)
+- **Priority**: high
+- **Phase-fit**: New product line / new repo with its own `docs/MASTER_PLAN.md` (chunks C0–C7). Not part of an existing repo's phase plan.
+- **Requested**: 2026-06-16
+- **Description**: Native iOS + Android app for fleet **staff** (managers + employees). Phase 1 = the daily field loop: login, bike barcode/QR scan & lookup, check-in/out (GPS + damage photos), safety inspections — **plus** staff-side reservation management: view upcoming/current reservations, start & stop a rental, swap bikes, create a reservation, and sign waivers. Public self-serve booking stays browser-based (low-frequency public use doesn't justify an app). The app doubles as a public distribution/visibility surface for the larger system.
+- **Notes**:
+  - **Repo created**: `Volo Technologies/fleetmanager-mobile` (org `TheLineExp`). Skeleton chunk **C0 committed** — Expo SDK 56 + TS + expo-router; dual-base-URL axios client (`fmApi` + `reservationsApi`) sharing the FM JWT; `expo-secure-store` tokens; TanStack Query + MMKV offline cache; Zustand auth store mirroring FM role selectors. Plan: `fleetmanager-mobile/docs/MASTER_PLAN.md`.
+  - **One token, two backends**: both FM V3 and reservations verify the same JWT (`issuer fm-vouchers`, `aud fm-staff`). Reservation start/stop **bridges** into FM check-out/check-in (`reservations/:id/start mode=with_checkout` → FM `/checkouts`) — no client-side reconciliation.
+  - **Backend work needed (the only net-new server work)** — FM V3: native Google OAuth deep-link callback returning tokens (`fleetmanager://auth?token=…`); `DeviceToken` table + register/unregister endpoints + Expo push dispatch on existing notification triggers and reservation events. Reservations: verify `Idempotency-Key` honored on the **staff** create route + FM `/checkouts` retry-safety (backbone of offline replay).
+  - **Decisions**: offline = queued writes + cached reads; devices = hybrid (personal phones + shared **PIN kiosk** fast-switch — infra already exists); Stripe Terminal deferred (Phase 1 uses payment links / pay-at-pickup); distribution = **public Apple App Store + Google Play** (internal TestFlight/Play tracks first).
+  - **Next**: C1 — auth & roles (email/Google/PIN), refresh interceptor, fleet picker, role-gated nav.
 
 ### FR-047: Fleet/Reservation Onboarding Wizard — Required Defaults + Go-Live Gating
 - **Repo(s)/area**: reservations (+ FM V3 settings UI)
