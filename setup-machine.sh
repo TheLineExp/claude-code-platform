@@ -87,8 +87,8 @@ do_or_echo "cp '$GLOBAL_SRC/statusline-command.sh' '$HOME_FS/.claude/statusline-
 do_or_echo "chmod +x '$HOME_FS/.claude/statusline-command.sh'"
 ok "~/.claude/statusline-command.sh"
 
-# user-global skills: the 6 vendored here (graphify, gstack-review, gstack-ship,
-# route, todo, feature) + pm from the platform's own .claude/skills.
+# user-global skills: the 7 vendored here (graphify, gstack-review, gstack-ship,
+# route, todo, feature, shipit) + pm from the platform's own .claude/skills.
 # Back up any existing same-named skill dir before replacing it, so a rerun /
 # migration never silently discards local customizations.
 for s in "$GLOBAL_SRC"/skills/*/; do
