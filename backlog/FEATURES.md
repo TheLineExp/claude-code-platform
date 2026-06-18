@@ -26,7 +26,7 @@ _Migrated from `fleetmanager-reservations/docs/FEATURE_REQUESTS.md` on 2026-06-1
 
 ### FR-049: Date-Specific / Holiday Hours Overrides (per-location)
 - **Repo(s)/area**: reservations (+ FM V3 settings UI)
-- **Status**: open
+- **Status**: open (in progress — reservations side built on `feature/w2-special-hours`: SpecialHours model + migration + availabilityService enforcement + admin CRUD + public `dateOverrides` + FE picker + tests/repro; ship note `docs/changelog/feature-w2-special-hours.md`. Remaining: FM V3 staff editor card — see that ship note's follow-up brief.)
 - **Priority**: high
 - **Phase-fit**: Extends the per-location scheduling/availability area (`LocationSettings` / booking slots). New reservations sub-phase, or folds into the settings/availability phase. Driving deadline: July 4 (see stopgap).
 - **Requested**: 2026-06-18
