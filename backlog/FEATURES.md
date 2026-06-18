@@ -18,11 +18,27 @@ _Migrated from `fleetmanager-reservations/docs/FEATURE_REQUESTS.md` on 2026-06-1
 - Add with `/feature add <description>` (size-checked — small/defined work goes to `/todo`).
 - Every request carries a **Repo(s)/area** tag so the cross-repo list stays scannable.
 - `/feature review` re-prioritizes and checks whether items should move to a repo's `MASTER_PLAN.md` or down to `/todo`.
-- FR IDs are a single shared sequence across all repos. Next free ID: **FR-049**.
+- FR IDs are a single shared sequence across all repos. Next free ID: **FR-050**.
 
 ---
 
 ## Open Requests
+
+### FR-049: Date-Specific / Holiday Hours Overrides (per-location)
+- **Repo(s)/area**: reservations (+ FM V3 settings UI)
+- **Status**: open
+- **Priority**: high
+- **Phase-fit**: Extends the per-location scheduling/availability area (`LocationSettings` / booking slots). New reservations sub-phase, or folds into the settings/availability phase. Driving deadline: July 4 (see stopgap).
+- **Requested**: 2026-06-18
+- **Description**: Set special open/close hours for specific calendar **dates** (holidays, special events) — supporting both **early-close AND late-open** — applied org-wide or scoped to specific locations. Today there is no way to set hours for a specific date at all; regular hours are only a per-location **weekly** schedule. Driving example: close at 4:00pm on July 4.
+- **Confirmed scope (what an override controls)**: (1) **Customer online booking availability** — `availabilityService` stops offering slots after the early-close / before the late-open on that date; (2) **Displayed open hours** — public site/embed "today's hours" + `CalendarDayView`/`CalendarWeekView` reflect the override. **OUT OF SCOPE for now**: staff roster / working hours (`dailyRosterService`) — despite the "close at 4 for our employees" framing, the roster side is explicitly excluded.
+- **Notes**:
+  - **Current model (from GLOBAL graph)**: regular hours = per-location weekly schedule via `LocationSettings.jsx` → `ScheduleCard.jsx` / `BookingSlotsPanel.jsx`; hooks `useLocationSettings` / `useBookingSlots` / `useLocationProfiles`; `settingsAPI` in `frontend/src/api/reservations.js`; backed by the `LocationSettings` DB schema. Bookable times computed by `backend/src/services/availabilityService.js` (the booking gate — note `validateBusinessHours` already enforces hours/min-notice there, cf. FR-044).
+  - **Why not just blockouts**: a `blockout` makes a date/time range unavailable (closure only) — it can't express "open 9–4 instead of 9–8" cleanly, doesn't change displayed hours, and is a poor model for recurring holidays. The real primitive is a per-date **hours override**.
+  - **Proposed approach**: new per-date hours override on the location schedule: `date → {open, close}` (or `closed`), optionally scoped to specific location(s), default org-wide; takes precedence over the weekly schedule for that date; resolved at both availability-compute time and display time.
+  - **Blast radius / surfaces**: `availabilityService.js` (honor override in slot generation); public/embed booking widget + `DatesStep.jsx`; `CalendarDayView.jsx` / `CalendarWeekView.jsx` (HOURS rendering); "today's hours" display; `LocationSettings` UI (new date-override editor near `ScheduleCard` / `BookingSlotsPanel`); `settingsAPI` + `useLocationSettings`/`useBookingSlots`; `LocationSettings` DB schema migration.
+  - **CRITICAL — timezone**: store overrides as **local wall-clock + location timezone**, never naive UTC. Resolve via `backend/src/utils/localDate.js` (`getLocalDayBoundsUTC`, `localWallTimeToUTC`, `getLocalWallClock`, `toLocalDateStr`) and honor the documented **"Timezone Handling — Cross-Repo Rule"**. Prior repro bugs (`business-hours-09-30-utc.js`, `blockout-fullday-localtz.js`) show the failure mode.
+  - **July 4 stopgap (no new feature)**: add a partial-day **blockout 16:00 → close** at the affected location(s). Covers customer booking only — does **not** change displayed hours. Use if the feature can't ship before July 4.
 
 ### FR-048: Fleet Manager Staff Native Mobile App (iOS + Android, Expo)
 - **Repo(s)/area**: cross-repo — new `fleetmanager-mobile` (Expo) + FM V3 backend + reservations backend
