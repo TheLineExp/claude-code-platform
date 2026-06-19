@@ -18,11 +18,36 @@ _Migrated from `fleetmanager-reservations/docs/FEATURE_REQUESTS.md` on 2026-06-1
 - Add with `/feature add <description>` (size-checked — small/defined work goes to `/todo`).
 - Every request carries a **Repo(s)/area** tag so the cross-repo list stays scannable.
 - `/feature review` re-prioritizes and checks whether items should move to a repo's `MASTER_PLAN.md` or down to `/todo`.
-- FR IDs are a single shared sequence across all repos. Next free ID: **FR-050**.
+- FR IDs are a single shared sequence across all repos. Next free ID: **FR-052**.
 
 ---
 
 ## Open Requests
+
+### FR-051: Employee Discounts & Customer Types — Standing Special-Pricing Tiers
+- **Repo(s)/area**: reservations (pricing) + FM V3 admin UI
+- **Status**: open
+- **Priority**: medium
+- **Phase-fit**: Extends the pricing/discount area (per-bike-type pricing, discount codes, VoloPass, manager price override) — likely a new "pricing tiers / customer segments" sub-phase rather than folding into an existing one.
+- **Requested**: 2026-06-18
+- **Description**: Support **customer types / segments** (e.g. member, VIP, corporate, local, repeat) that carry **standing special pricing** applied automatically at booking, plus an **employee discount** mechanism (staff comp or % off). Today pricing is per-bike-type with optional discount **codes** / VoloPass redemption + a one-off manager **price override**; there is no concept of a customer category that always prices differently, nor a built-in employee/comp rate — staff hand-apply overrides each time.
+- **Notes**:
+  - **Needs design** before build — open questions: where the type lives (tag on `Customer`, or chosen per booking?), how pricing rules attach to a type (flat % off / fixed tier table / per-bike-type multiplier), how employees are identified (FM staff account vs a redeemable employee code), and precedence/stacking vs existing **discount codes / VoloPass / tax-exempt**.
+  - **Blast radius**: pricing calc (`_calculatePricing`), `Customer` model + admin customer UI, booking flow (auto-apply at quote time), FM V3 PaymentSection / discount entry points, reporting (segment revenue).
+  - **Cross-check**: existing discount-code + VoloPass infra (could the "type" just be an auto-applied, non-consuming discount?) and the manager price-override path (x42).
+
+### FR-050: Group Balance Collection — One Payment Link for a Group's Adjusted Remainder
+- **Repo(s)/area**: reservations (payments) + FM V3 PaymentSection UI
+- **Status**: open
+- **Priority**: medium
+- **Phase-fit**: Extends the staff payments/charge area (PaymentSection, manager price override, Send Payment Link) — new reservations payments sub-phase, or folds into the group-booking phase.
+- **Requested**: 2026-06-18
+- **Source**: 2026-06-18 LINE-ERWQVM incident — a group (group `366372de`) of **4 reservations** ($249.32 + $136.44 + $96.44 + $74.60 = **$556.80**), only **$103.74** ever paid (one charge on the leader), no saved card. Staff needed to re-price for all bikes (one bike 50% off), credit the $103.74, and send the customer **one** link for the remainder — and there was no way to do it.
+- **Description**: A **group-level "collect remaining balance"** flow: sum the group's *adjusted* totals across all member reservations (respecting per-bike price overrides + discounts), subtract everything already paid across the group, and mint **ONE** Stripe Checkout link for the net remainder — then reconcile each member reservation's `paymentStatus` when the link is paid.
+- **Notes**:
+  - **Why it's hard today**: both collection paths are **per-reservation** — `_settleReservationDelta` / `createUpgradePaymentLink` and the FM V3 Send-Payment-Link button all operate on a single reservation, so a group whose bikes are split across N reservations can't be billed in one go. `getGroupTotal()` already sums member totals; the legacy `markGroupPaid` (aggregate group_payment row) is retired and shouldn't be revived as-is (it caused the double-count display issues this incident surfaced).
+  - **Design questions**: which reservation "owns" the link (leader?), how the paid amount is split/recorded back across members, how it interacts with the now-per-seat group payment model, and group-vs-member status reconciliation on `checkout.session.completed`.
+  - **Interim workaround used**: a manual Stripe Dashboard Payment Link (or a single `createUpgradePaymentLink` on the leader) for the exact remainder, with manual status cleanup.
 
 ### FR-049: Date-Specific / Holiday Hours Overrides (per-location)
 - **Repo(s)/area**: reservations (+ FM V3 settings UI)
