@@ -18,11 +18,28 @@ _Migrated from `fleetmanager-reservations/docs/FEATURE_REQUESTS.md` on 2026-06-1
 - Add with `/feature add <description>` (size-checked — small/defined work goes to `/todo`).
 - Every request carries a **Repo(s)/area** tag so the cross-repo list stays scannable.
 - `/feature review` re-prioritizes and checks whether items should move to a repo's `MASTER_PLAN.md` or down to `/todo`.
-- FR IDs are a single shared sequence across all repos. Next free ID: **FR-052**.
+- FR IDs are a single shared sequence across all repos. Next free ID: **FR-053**.
 
 ---
 
 ## Open Requests
+
+### FR-052: Manager "Issue Refund Anytime" — Credit-First Refunds Without Cancelling
+- **Repo(s)/area**: cross-repo — reservations (payments/refunds) backend + FM V3 admin UI
+- **Status**: open
+- **Priority**: high
+- **Phase-fit**: Extends the shipped **Unified Refund System** (reservations `refundOrchestrator`, P0.5, shipped 2026-04-13) and the **F1 Rental Credit / Goodwill voucher** work (vouchers PR #70). Likely a small reservations refund sub-phase + a paired FM V3 frontend chunk — not a new phase.
+- **Requested**: 2026-06-19
+- **Source**: Owner request — a manager should be able to issue partial or full refunds at **any point**, not only after cancelling. Real scenarios: **bike damage, injury** mid-rental, where the booking should stand (not be cancelled) but the customer needs compensating.
+- **Description**: One unified manager **"Issue Refund"** action available on **active / confirmed / completed** reservations (not just `completed`, and without forcing a cancellation). **Defaults to store credit**, with a toggle to **refund to the original card** or record **cash**. Both credit and card are *real refunds* recorded against the booking (voucher_credit uses `programType:'refund'`, distinct from the existing goodwill comp). Partial and full amounts supported.
+- **Notes**:
+  - **Engine already exists** — `refundOrchestrator.processRefund()` supports `mode:'post_rental'` (gives money back without touching reservation status), all three methods (stripe / cash / voucher_credit), partial amounts, locking, audit, reconciliation, and customer notifications. `voucherService.issueCredit` already distinguishes `programType:'refund'` (real refund as credit) vs `'goodwill'`. **The work is opening the door + defaulting to credit, not building refund logic.**
+  - **Backend (reservations)**: new `reservationService.issueRefund()` generalizing the completed-only `postRentalRefund` ([reservationService.js:3343]); allow status ∈ active/confirmed/completed; default `refundMethod='voucher_credit'`; auto-build voucherCredit `programName`/1-yr expiry; `releaseVoucher=false`. Repurpose `POST /api/reservations/:id/refund` ([reservations.js:575]) to call it, manager-gated, keep `requireFreshPin`. Keep Stripe's 180-day hard cap (beyond it → credit/cash only). Window guard (`computePostRentalPolicy`) applies only to the `completed` case and is override-gated; no window for active/confirmed. Add `bike_damage` + `injury` to `INTERNAL_REFUND_REASONS` ([paymentService.js:29]) + customer-safe text. No schema migration.
+  - **FM V3 (frontend, separate repo)**: new `IssueRefundModal` + `useIssueRefund()` hook in `frontend/src/pages/reservations/` (alongside `CancelRefundModal`/`IssueCreditModal`); amount (default max refundable, partial allowed), method selector **defaulting to Store credit** (Card / Cash options), reason select (+ new reasons), note, override + attestation when over policy/window; disable Card with inline reason when no capture or past 180 days.
+  - **Vouchers**: no change — `programType:'refund'` propagation already shipped (PR #70, 2026-05-07); verify live in target env before build.
+  - **Accounting**: a voucher_credit refund writes a `type:'refund'` Payment row but does NOT reduce the card capture's `refundedAmount` (no card money moved); stripe reduces both; goodwill credits stay off the refund ledger.
+  - **Decision (2026-06-19)**: credit-first = real-refund-paid-as-credit (not goodwill comp); available on active/confirmed/completed only (not cancelled/no_show); **plan both repos, build together** — coding held until FM V3 is checked out alongside reservations.
+  - **Cross-check / overlap**: FR-036 (early-return refund on check-in time adjustments) and FR-037 (breakage hold & damage charge) are damage/refund-adjacent — coordinate so damage flows can hook this refund path rather than duplicate it.
 
 ### FR-051: Employee Discounts & Customer Types — Standing Special-Pricing Tiers
 - **Repo(s)/area**: reservations (pricing) + FM V3 admin UI
