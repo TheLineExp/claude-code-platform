@@ -18,11 +18,21 @@ _Migrated from `fleetmanager-reservations/docs/FEATURE_REQUESTS.md` on 2026-06-1
 - Add with `/feature add <description>` (size-checked — small/defined work goes to `/todo`).
 - Every request carries a **Repo(s)/area** tag so the cross-repo list stays scannable.
 - `/feature review` re-prioritizes and checks whether items should move to a repo's `MASTER_PLAN.md` or down to `/todo`.
-- FR IDs are a single shared sequence across all repos. Next free ID: **FR-053**.
+- FR IDs are a single shared sequence across all repos. Next free ID: **FR-054**.
 
 ---
 
 ## Open Requests
+
+### FR-053: Server-authoritative "early-pickup available?" signal for the public booking flow
+- **Repo(s)/area**: reservations — backend (availability/pricing preview) + public FE (`useDateSelection.js`)
+- **Status**: open
+- **Priority**: P2 (raise to P1 before enabling `earlyPickupEnabled` broadly in prod)
+- **Phase-fit**: hardening follow-up to the shipped early-pickup generalization (PRs #1086/#1088/#1091/#1094); not a new phase. Related to **FR-039** (admin dates-step early-pickup/late-dropoff) but distinct surface (this is the public customer flow + the FE/BE source-of-truth).
+- **Requested**: 2026-06-20
+- **Source**: Recurring Codex/Claude review findings across the early-pickup PRs.
+- **Description**: The FE optimistically re-derives early-pickup eligibility (`earlyPickupInfo` / `earlyPickupAvailWindow` in `useDateSelection.js`) while the backend `_resolveEarlyPickup` is authoritative and declines in cases the FE can't fully mirror without a server call — scoped/event-link flows, a `BlockoutDate` on the prior evening, after-close, in-grace, no-next-open-morning, etc. Each gap is a preview/charge mismatch (the card + fee show, the server drops them) that's been patched one-at-a-time (Codex #84/#88/#91/#92/#133/#136/#139 + the P1 scoped-shift). Replace the optimistic FE derivation with ONE server-authoritative signal: a per-cart "early pickup available?" result (eligible + billed/hold windows + fee), folded into the existing availability or a pricing/preview call, that the FE consumes directly.
+- **Notes**: Eliminates the whole mismatch class and prevents future mirror-gaps in one place. The remaining accepted edge case (#136 — blockout on the exact prior evening degrades to a morning pickup, no overcharge) closes for free once the FE no longer offers what the server will decline. Pairs with `/todo` FF1 (surface the same-day shift in the public slot builders). **Recommend building this before turning on `earlyPickupEnabled` for production locations.**
 
 ### FR-052: Manager "Issue Refund Anytime" — Credit-First Refunds Without Cancelling
 - **Repo(s)/area**: cross-repo — reservations (payments/refunds) backend + FM V3 admin UI
