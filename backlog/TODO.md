@@ -10,10 +10,13 @@
 
 # 🗂️ Backlog — quality-sweep tasks across all FleetManager repos
 
-_Last touched: 2026-06-16 (created)_
+_Last touched: 2026-06-20_
 
 ## 🔥 Fast follow-ups
 _(small, discrete, ship-soon items — fixes, tweaks, residuals)_
+
+- [ ] (FF1) [reservations] **Early pickup: surface the same-day shift in the public slot builders** — backend accepts post-cutoff same-day full/half/hourly (shift to next open morning), but `computeFullDayBlocks` / `sameDayBlockGraceExpired` / hourly-future-only still drop those slots, so a customer can't select them. Feature gap, not a regression (those were never publicly bookable). Make the slot builders keep post-cutoff shifted slots when `earlyPickupEnabled`. (Codex #94 on PR #1086.)
+- [ ] (FF2) [reservations] **Early pickup: DB race trigger ignores physicalStartTime** — the `20260513000000_p2_idempotency_race_safety` trigger enforces no-overlap on `Reservation.startTime/endTime` only, NOT `physicalStartTime`. Concurrent creates whose billed windows don't overlap but whose early-pickup evening HOLDS do could both pass. Pre-existing since x20 same-day early pickup; app-level `holdOverlapOR` covers the normal path. Fix: extend the trigger (migration) to also enforce `physicalStartTime`-based overlap. (Codex #89 on PR #1086.)
 
 ## 🧹 Ops / cleanup
 
