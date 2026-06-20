@@ -26,7 +26,7 @@ _Migrated from `fleetmanager-reservations/docs/FEATURE_REQUESTS.md` on 2026-06-1
 
 ### FR-052: Manager "Issue Refund Anytime" — Credit-First Refunds Without Cancelling
 - **Repo(s)/area**: cross-repo — reservations (payments/refunds) backend + FM V3 admin UI
-- **Status**: open — **backend in PR [TheLineExp/fleetmanager-reservations#1085](https://github.com/TheLineExp/fleetmanager-reservations/pull/1085) (OPEN → staging, 2026-06-19)**; FM V3 manager UI still to build (needs that repo checked out)
+- **Status**: open — backend on **staging** (#1085 merged + Codex-review hardening in PR [#1089](https://github.com/TheLineExp/fleetmanager-reservations/pull/1089), OPEN → staging). **Prod promotion HELD** (#1087 closed) pending the FM V3 UI. **Remaining before prod (ship together with the UI):** (1) **P1 idempotency** — repeat equal manager refunds write duplicate refund Payment rows; fix threads a per-submit idempotency key from the modal into the orchestrator Stripe/voucher key + Payment reference; (2) **P2 late-fee** — orchestrator full/partial status aggregate counts late fees while issueRefund excludes them (decide late-fee refundability across cancel/discount/post_rental modes). FM V3 manager UI still to build (needs that repo checked out).
 - **Priority**: high
 - **Phase-fit**: Extends the shipped **Unified Refund System** (reservations `refundOrchestrator`, P0.5, shipped 2026-04-13) and the **F1 Rental Credit / Goodwill voucher** work (vouchers PR #70). Likely a small reservations refund sub-phase + a paired FM V3 frontend chunk — not a new phase.
 - **Requested**: 2026-06-19
