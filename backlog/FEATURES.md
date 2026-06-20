@@ -18,11 +18,21 @@ _Migrated from `fleetmanager-reservations/docs/FEATURE_REQUESTS.md` on 2026-06-1
 - Add with `/feature add <description>` (size-checked — small/defined work goes to `/todo`).
 - Every request carries a **Repo(s)/area** tag so the cross-repo list stays scannable.
 - `/feature review` re-prioritizes and checks whether items should move to a repo's `MASTER_PLAN.md` or down to `/todo`.
-- FR IDs are a single shared sequence across all repos. Next free ID: **FR-054**.
+- FR IDs are a single shared sequence across all repos. Next free ID: **FR-055**.
 
 ---
 
 ## Open Requests
+
+### FR-054: Multiple-Revision Mode for Container Apps Prod Deploys — Zero-Downtime Blue-Green + Version Testing
+- **Repo(s)/area**: azure / cross-repo — `deploy.yml` shared pattern across FM V3, reservations, vouchers (all `Single`-revision today)
+- **Status**: open
+- **Priority**: P1 (every prod deploy currently causes a brief user-facing outage)
+- **Phase-fit**: new phase — deploy/infra hardening (azure-ops). Builds on the existing custom-domain-binding guard in `deploy.yml`.
+- **Requested**: 2026-06-20
+- **Source**: Prod incident 2026-06-20 — FM V3 web-prod 404'd during the PR #1061 deploy. Root cause: in-place `az containerapp update --image` swap in `Single` revision mode has no traffic overlap, so the ingress returns 404/503 for ~30–60s until the new revision is Healthy. minReplicas=1, so not scale-to-zero; binding stayed intact (not the 2026-05-21 failure mode).
+- **Description**: Move the prod container apps to **`Multiple` active-revisions mode** and change the deploy to a true blue-green cutover: bring the new revision up at **0% traffic**, wait until it reports Healthy (and optionally smoke-test it via its direct revision FQDN / a `--revision-suffix` label), then **shift 100% traffic** to it and retire the old revision. Eliminates the per-deploy 404 window AND unlocks **version testing in prod** — a new revision can be validated on a labeled URL (or canary traffic split, e.g. 90/10) before promotion, and rollback becomes an instant traffic re-point to the prior healthy revision instead of a redeploy.
+- **Notes**: Cross-repo — the same `deploy.yml` pattern lives in all three repos, so design once and roll out consistently (FM V3 first as the pilot). Touch points: revision-mode config, `--revision-suffix` naming (e.g. git SHA), traffic-split commands, the post-deploy health check (must target the *new* revision's label, not just the app FQDN, or it can pass against the old revision), and the DB-migration step ordering (migrations must be backward-compatible with the still-live old revision during overlap — expand/contract). Cheaper interim mitigations if this slips: bump `minReplicas` to ≥2, or add a readiness probe to narrow the swap window. Pairs with the existing custom-domain-binding guard.
 
 ### FR-053: Server-authoritative "early-pickup available?" signal for the public booking flow
 - **Repo(s)/area**: reservations — backend (availability/pricing preview) + public FE (`useDateSelection.js`)
