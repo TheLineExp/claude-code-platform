@@ -18,11 +18,21 @@ _Migrated from `fleetmanager-reservations/docs/FEATURE_REQUESTS.md` on 2026-06-1
 - Add with `/feature add <description>` (size-checked — small/defined work goes to `/todo`).
 - Every request carries a **Repo(s)/area** tag so the cross-repo list stays scannable.
 - `/feature review` re-prioritizes and checks whether items should move to a repo's `MASTER_PLAN.md` or down to `/todo`.
-- FR IDs are a single shared sequence across all repos. Next free ID: **FR-055**.
+- FR IDs are a single shared sequence across all repos. Next free ID: **FR-056**.
 
 ---
 
 ## Open Requests
+
+### FR-055: Refund orchestrator concurrency hardening (pre-existing, surfaced by FR-052 audit)
+- **Repo(s)/area**: reservations — `refundOrchestrator` + `paymentCaptureJob` / `paymentService.capturePayment`
+- **Status**: open
+- **Priority**: P1 (real races reachable in normal operation; NOT introduced by FR-052 — pre-exists on the authorized/capture + cancel path)
+- **Phase-fit**: orchestrator hardening; pairs with the system-wide review-process effort. Distinct from FR-052 (the manager-refund feature ships on the captured-booking path, largely clear of these).
+- **Requested**: 2026-06-21
+- **Source**: Independent adversarial concurrency audit during the FR-052 ship.
+- **Description**: The refund lock is a non-atomic status-column sentinel (`paymentStatus='refunding'`). Audit found: (P1) the **capture job + `capturePayment` write `paymentStatus:'captured'` with no status guard**, so they can clobber the `'refunding'` sentinel → broken lock / double refund cycle; (P1) the **Stripe op is chosen from the caller's stale `entity.paymentStatus` snapshot**, not the value read under the lock → an authorized→captured race voids an already-captured PI; (P2) the stripe-path final status write is an unguarded `update` (can overwrite a concurrent winner); (P2) **no reaper** for rows stranded in `'refunding'` by a crash mid-refund (lock never auto-releases; Stripe refund with no ledger row).
+- **Notes**: Durable fix = atomic acquire (`SELECT … FOR UPDATE` in a `$transaction`, capturing prior status atomically — repo precedent in `groupService`/`customDomainService`) + **status-guard every `paymentStatus` writer** (the one change that actually stops the capture-clobber class) + branch on the lock-read status, not the snapshot + a persisted refund-attempt id as the idempotency anchor (DB-unique ledger dedup) + a `'refunding'`-strand reaper job. The external Stripe/voucher call can't sit inside a DB tx, so the sentinel-across-async-work + idempotency keys + reaper are inherent. Full audit in this session's transcript.
 
 ### FR-054: Multiple-Revision Mode for Container Apps Prod Deploys — Zero-Downtime Blue-Green + Version Testing
 - **Repo(s)/area**: azure / cross-repo — `deploy.yml` shared pattern across FM V3, reservations, vouchers (all `Single`-revision today)
