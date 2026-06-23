@@ -18,11 +18,22 @@ _Migrated from `fleetmanager-reservations/docs/FEATURE_REQUESTS.md` on 2026-06-1
 - Add with `/feature add <description>` (size-checked — small/defined work goes to `/todo`).
 - Every request carries a **Repo(s)/area** tag so the cross-repo list stays scannable.
 - `/feature review` re-prioritizes and checks whether items should move to a repo's `MASTER_PLAN.md` or down to `/todo`.
-- FR IDs are a single shared sequence across all repos. Next free ID: **FR-056**.
+- FR IDs are a single shared sequence across all repos. Next free ID: **FR-057**.
 
 ---
 
 ## Open Requests
+
+### FR-056: VoloPass reserved→used lifecycle — two-phase hold + redeem-at-cancellation-deadline + payment queue
+- **Repo(s)/area**: cross-repo — vouchers (status model + service endpoints) + reservations (reserve/redeem/release triggers + sweep job) + FM V3 (reserved-vs-used display)
+- **Status**: open
+- **Priority**: P2 (the immediate dropped-pass incident is fixed by PR #1183; this is the proper lifecycle the customer flow implies)
+- **Phase-fit**: new cross-repo phase — VoloPass lifecycle. Builds on the existing `voucherService` (validate/redeem/release) + `paymentCaptureJob`/`cancellationPolicyService` patterns.
+- **Requested**: 2026-06-22
+- **Source**: LINE-HGE5H4 public pass-link incident (`/pass/THEL2606107632` booked full price, un-redeemed). PR #1183 fixed the binding + fail-closed; this FR is the lifecycle the user described. Plan: `~/.claude/plans/witty-splashing-book.md` Part 2.
+- **Description**: Today Vouchers is single-phase (`available → redeemed`, revertible via `release`); there is **no `reserved` state**, **no redeem-at-cancellation-deadline trigger** (redeem fires on confirm), and **redeem does not enqueue payment** (a separate scheduled `invoiceService` sweep does). The user wants a pass **RESERVED** at booking (held, releasable), **REDEEMED + enqueued to the payment/settlement queue** when the booking passes its free-cancellation deadline, and the reservation + Vouchers portal to **show reserved-then-used**.
+- **Recommended design**: true two-phase hold in Vouchers — add a `reserved` status + `/api/service/reserve` (and convert `/redeem`, `/release`) so `available → reserved → redeemed` (`vouchers/backend/prisma/schema.prisma` status enum, `routes/service.js`, `services/voucherService.js`; portal "reserved vs used" keys on status in `routes/partner.js`). Reservations **reserves** at booking, **redeems** via a scheduled sweep modeled on `paymentCaptureJob` (deadline = `startTime − freeCancelHours` from `cancellationPolicyService`), **releases** on cancel-before-deadline (the cancel-release path already exists at `reservationService.js` ~2477). Surface "Reserved"/"Used" on the reservation (extends the PR-B/PR-C display work) and enqueue the redeemed pass for settlement.
+- **Notes**: Only the two-phase hold both shows "reserved" in the Vouchers **portal** AND avoids double-spending a single-use pass before the deadline (the lighter "redeem-at-booking + release-on-cancel, derive reserved/used in Reservations only" alternative loses the portal state and consumes early). **Folds in the deferred item from PR #1183**: preserve the already-booked discount on a *reprice during a Vouchers outage* (currently degrades to no-discount for that recompute — the `failClosedOnVoucherOutage=false` reprice path); the lifecycle work is the natural home for trusting the persisted `discountAmount` on reprice. Display-only pieces (show the pass + pass-aware payment status) ship first as PR-B (FM V3) / PR-C (reservations public confirmation) independent of this lifecycle.
 
 ### FR-055: Refund orchestrator concurrency hardening (pre-existing, surfaced by FR-052 audit)
 - **Repo(s)/area**: reservations — `refundOrchestrator` + `paymentCaptureJob` / `paymentService.capturePayment`
