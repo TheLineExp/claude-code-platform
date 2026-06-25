@@ -18,11 +18,23 @@ _Migrated from `fleetmanager-reservations/docs/FEATURE_REQUESTS.md` on 2026-06-1
 - Add with `/feature add <description>` (size-checked — small/defined work goes to `/todo`).
 - Every request carries a **Repo(s)/area** tag so the cross-repo list stays scannable.
 - `/feature review` re-prioritizes and checks whether items should move to a repo's `MASTER_PLAN.md` or down to `/todo`.
-- FR IDs are a single shared sequence across all repos. Next free ID: **FR-057**.
+- FR IDs are a single shared sequence across all repos. Next free ID: **FR-059**.
 
 ---
 
 ## Open Requests
+
+"### FR-058: Rental-length controls — per-fleet max rental days + Month block toggle
+**Repo(s)/area:** reservations (backend + public flow) + FM V3 (admin) · pricing/booking-policy
+
+**Why:** Today `month` is only a price *cap* applied in `pricingResolver.computeMultiDayBikePrice` (`Math.min(total, month)`), NOT a duration a customer picks, and there is **no maximum rental length** — so a customer can already book 30/60/90 days via the multi-day picker (the month rate just caps the price). Owner: "we don't want to rent bikes for months at a time," and wants Month controllable like the other pricing types. (Surfaced verifying PR-8c-3b on staging, 2026-06-24.)
+
+**Scope (per-fleet, owner-confirmed):**
+- **Part A — Max rental length.** New `BookingFieldConfig.maxRentalDays Int?` (null = unlimited; migration). Admin input in FM V3 FieldConfigSettings. Public multi-day picker clamps week-chips + day-stepper to `min(maxRentalDays, advanceBookingDays)` + "max N days" hint (DatesSection.jsx). Backend commit gate in `reservationService.createReservation` rejects non-staff multi_day bookings whose inclusive day-count > maxRentalDays (mirror `assertBlockEnabled` placement + `effectiveSource !== 'staff'` bypass). Public GET `/fleet/:id/booking-field-config` already returns the row — add the default.
+- **Part B — Month toggle.** FM V3 PricingSettings: add `month` to the matrix enable/disable toggles (default-on; EXEMPT from the enable↔price guard since a cap with no rate = no cap). Gate the month cap on `isBlockEnabled(cfg,'month')` at all 5 `computeMultiDayBikePrice` callers (catalog ×2, availability/v2 ×2, _calculatePricing ×1).
+
+**Build:** PR-A (reservations: schema/migration + admin PUT validate + public GET + commit gate + public-FE clamp + month-cap gating) → deploy (migration) → PR-B (FM V3: maxRentalDays input + month toggle). Status: open → building 2026-06-24 (worktrees `-x18` reservations / FM V3 TBD).
+
 
 ### FR-056: VoloPass reserved→used lifecycle — two-phase hold + redeem-at-cancellation-deadline + payment queue
 - **Repo(s)/area**: cross-repo — vouchers (status model + service endpoints) + reservations (reserve/redeem/release triggers + sweep job) + FM V3 (reserved-vs-used display)
