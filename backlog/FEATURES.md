@@ -18,11 +18,29 @@ _Migrated from `fleetmanager-reservations/docs/FEATURE_REQUESTS.md` on 2026-06-1
 - Add with `/feature add <description>` (size-checked — small/defined work goes to `/todo`).
 - Every request carries a **Repo(s)/area** tag so the cross-repo list stays scannable.
 - `/feature review` re-prioritizes and checks whether items should move to a repo's `MASTER_PLAN.md` or down to `/todo`.
-- FR IDs are a single shared sequence across all repos. Next free ID: **FR-059**.
+- FR IDs are a single shared sequence across all repos. Next free ID: **FR-060**.
 
 ---
 
 ## Open Requests
+
+### FR-059: Reusable Voucher Cards — durable, reassignable physical card pool over the single-use engine
+- **Repo(s)/area**: cross-repo — vouchers (new `ReusableCard` + `CardAssignment` models, `cardService`, service/partner/admin endpoints, redeem/release hooks) + vouchers **portal** (distributor operator UI) + reservations (serial→code resolution seam in `voucherService.js`) + optional FM V3 system-level inventory tab
+- **Status**: open
+- **Priority**: P2 (net-new capability, no live incident)
+- **Phase-fit**: new cross-repo VoloPass "card-pool" phase — additive over the existing `voucherService`; coordinate with FR-056
+- **Requested**: 2026-06-26
+- **Source**: Mike, 2026-06-26 — wants durable plastic cards (printed once) that a front-desk **distributor reassigns to a new guest each visit**, instead of printing disposable one-time-code cards. Full design + codebase exploration in plan `~/.claude/plans/ok-i-have-a-stateless-badger.md`.
+- **Decisions captured**: token = reusable card **serial** (no phone/PII); grants = **reassignable, one ride each**; activation = **operator/distributor enrolls** (scan serial + pick program; no public activation step); scope = design-first, multi-PR.
+- **Core principle**: do **NOT** make a voucher multi-use — the budget/invoice/cap/audit layer assumes 1 redemption = 1 voucher (`Voucher.code @unique`, terminal `redeemed`, optimistic lock in `voucherService.redeemVoucher`). Instead a durable **card token** is a thin reloadable **alias** that mints ONE ordinary single-use voucher per assignment. Card reusable; voucher not; all accounting stays verbatim; the change is purely additive.
+- **Card lifecycle**: `blank → assigned` (mint 1 voucher under a program, counts vs budget) `→ used` (booking redeems via the existing path; NOT auto-unbound, so operator stays in control and a cancel can revert) `→ reassign` (void/release old voucher, mint fresh) ; retire any time. Release/cancel reverts `used→assigned` only if the card still points at that voucher (else the released voucher returns to the program pool as normal — documented edge).
+- **Data model** (vouchers `schema.prisma`): `ReusableCard { id, serial @unique, status blank|assigned|used|retired, fleetId+issuingOrgId(+distributorId), currentVoucherId @unique FK→Voucher, currentProgramId, assignedAt/By, note, timesUsed, timestamps }` + append-only `CardAssignment` (mirrors `VoucherEvent`) `{ cardId, voucherId, programId, action assigned|redeemed|released|reassigned|retired, actor, metadata }`. No change to `Voucher`/`VoucherProgram`/budget fields.
+- **Reservations seam (minimal)**: resolve serial→current voucher code via new `GET /api/service/card?serial=&fleetId=`, then feed into the **unchanged** validate/redeem/release/outbox path keyed on the resolved code. No change to `createReservation`/pricing/outbox columns/`voucherReconciliationJob`.
+- **Operator UI = vouchers PORTAL** (`portal/src/pages/`), NOT FM V3 — card assignment is a tenant-scoped distributor op per the canonical-surface split rule (ADR `docs/architecture/portal-as-canonical-tenant-surface.md`). FM V3 gets at most a read-only system-level inventory tab.
+- **Reuse**: `codeGenerator.generateBulkCodes` (mint 1) · existing `count>remaining` budget guard (`routes/admin.js` ~1145) · `redeemVoucher`/`releaseVoucher` unchanged · status-guarded `$transaction` optimistic lock (same as redeem) · `VoucherEvent`→`CardAssignment` audit pattern · existing reservations outbox + reconciliation job · `vouchersAPI.cardPdf`/CSV export for a printable serial sheet.
+- **Risk/adversarial (voucher+state+concurrency — pre-push parity sweep applies)**: double-assign guarded by status-guarded `$transaction` (`WHERE status IN ('blank','used')`); the auto-mark-`used` card update MUST be the 3rd op INSIDE the existing redeem `$transaction` (else a redeemed card sticks at `assigned`); cancel/rebind symmetry edge above; budget accounting unchanged (incl. the known bulk-purge cap-undercount); tenant scoping via `expectedFleetId`; pre-redemption release/reassign must void the pending voucher so it doesn't permanently consume a budget slot.
+- **Phasing**: (1) vouchers backend models+migration+`cardService`+hooks+endpoints+tests; (2) vouchers portal distributor Reusable Cards inventory + assign/reassign/release/retire; (3) reservations serial→code seam + tests; (4) optional FM V3 inventory tab + serial-batch printable sheet.
+- **Cross-links**: **FR-056** (VoloPass reserved→used two-phase lifecycle — if it lands first, card-minted vouchers ride the same lifecycle for free) and the **customer types/segments FR** (the deferred phone-as-identity path — keep the token model compatible so phone can be added later as a second token type).
 
 "### FR-058: Rental-length controls — per-fleet max rental days + Month block toggle
 **Repo(s)/area:** reservations (backend + public flow) + FM V3 (admin) · pricing/booking-policy
