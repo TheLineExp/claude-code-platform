@@ -18,11 +18,21 @@ _Migrated from `fleetmanager-reservations/docs/FEATURE_REQUESTS.md` on 2026-06-1
 - Add with `/feature add <description>` (size-checked — small/defined work goes to `/todo`).
 - Every request carries a **Repo(s)/area** tag so the cross-repo list stays scannable.
 - `/feature review` re-prioritizes and checks whether items should move to a repo's `MASTER_PLAN.md` or down to `/todo`.
-- FR IDs are a single shared sequence across all repos. Next free ID: **FR-060**.
+- FR IDs are a single shared sequence across all repos. Next free ID: **FR-061**.
 
 ---
 
 ## Open Requests
+
+### FR-060: De-VoloPass code scrub (legal) — remove "VoloPass"/"Volo" from ALL code
+- **Repo(s)/area**: cross-repo — vouchers + reservations + FM V3 + azure
+- **Status**: open
+- **Priority**: P1 / high (legal jeopardy over the "VoloPass"/"Volo" brand)
+- **Phase-fit**: new cross-repo "de-brand" project — needs its own scoping plan (migration + coordinated contract changes + Azure renames + staged deploy)
+- **Requested**: 2026-06-29
+- **Source**: Mike, 2026-06-29 — wants "VoloPass" scrubbed from the codebase entirely, not just user-facing strings.
+- **Description**: The brand was already retired *user-facing* via configurable `BRAND_NAME` ("The Line Vouchers"). This FR is the **internal-identifier scrub**: rename `/admin/volopass/*` and `/volopass-offerings` **route paths**, `volopass*` **API field names** (cross-repo contracts between vouchers ↔ reservations ↔ FM V3), `Volopass*` **Prisma models/columns** (needs a migration), `Volopass*`/`volopass*` **filenames + identifiers** (e.g. `VolopassOfferings.jsx`, `SystemVolopassLayout`, `volopassConnectClient`, `useVolopassOffering*`), and the **Azure resource names** (`vouchers-api-*` etc.).
+- **Notes**: **Reverses** the explicit "do not rename volopass internal identifiers" guidance in all 3 CLAUDE.md files (vouchers / FM V3 / reservations) — update those sections + the `volopass-rebrand-configurable` memory when this runs. Until this lands, all NEW code must use neutral "voucher"/"offering" naming (in force as of 2026-06-29; first feature built under that rule = offering visibility + voucher-aware cleanup, plan `crystalline-orbiting-summit`). Coordinate route/field/model renames as versioned contract changes so the 3 services don't break mid-deploy. Pairs with the standalone-extraction directive (voucher logic stays in the vouchers service).
 
 ### FR-059: Reusable Voucher Cards — durable, reassignable physical card pool over the single-use engine
 - **Repo(s)/area**: cross-repo — vouchers (new `ReusableCard` + `CardAssignment` models, `cardService`, service/partner/admin endpoints, redeem/release hooks) + vouchers **portal** (distributor operator UI) + reservations (serial→code resolution seam in `voucherService.js`) + optional FM V3 system-level inventory tab
