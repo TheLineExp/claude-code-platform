@@ -18,11 +18,21 @@ _Migrated from `fleetmanager-reservations/docs/FEATURE_REQUESTS.md` on 2026-06-1
 - Add with `/feature add <description>` (size-checked — small/defined work goes to `/todo`).
 - Every request carries a **Repo(s)/area** tag so the cross-repo list stays scannable.
 - `/feature review` re-prioritizes and checks whether items should move to a repo's `MASTER_PLAN.md` or down to `/todo`.
-- FR IDs are a single shared sequence across all repos. Next free ID: **FR-061**.
+- FR IDs are a single shared sequence across all repos. Next free ID: **FR-062**.
 
 ---
 
 ## Open Requests
+
+### FR-061: Partner Booking Portal + Automated Commission Payouts (Stripe Connect)
+- **Repo(s)/area**: cross-repo — reservations (Affiliate upgrade + partner Connect onboarding + payout job + standalone partner portal) + FM V3 (admin create-partner) · builds on the in-flight `wpay-settlement` Connect-charging work
+- **Status**: open (planned — plan approved 2026-06-29, `~/.claude/plans/we-need-a-way-noble-brook.md`)
+- **Priority**: high
+- **Phase-fit**: continuation of reservations `wpay-settlement` (the Connect platform-fee substrate) + extension of the shipped FR-006 / Phase 21A affiliate system. New multi-PR project; Phase 3 sequences after `wpay-settlement` lands.
+- **Requested**: 2026-06-29
+- **Source**: Mike, 2026-06-29 — hotel/hospitality partners (e.g. "FluidRide") book bikes for their clients through a partner portal/flow and earn a commission, paid out automatically via Stripe Connect on a schedule, with full reporting to fleet + partner.
+- **Description**: A fleet manager partners with an external org and pays them a commission. Onboard a partner (info + a Stripe Connect account, mirroring the FM V3 fleet OAuth onboarding one layer down), assign a commission % + payout cadence (daily/weekly/monthly), attribute bookings to the partner (referral code — already shipped), accrue commission, **fund it as an extra `application_fee` component on top of the existing 3% software fee so it lands in the platform balance, then transfer it out to the partner's connected account on schedule**, and report it. Guest pays at checkout (full public flow reused incl. voucher + add-ons). Partner portal works like the vouchers portal but is its OWN surface in the reservations app (vouchers is being spun out).
+- **Notes**: ~70% already exists — reservations `Affiliate`/`AffiliateAttribution`/`AffiliatePayout` (FR-006, commission-on-subtotal, attribution via `?ref=`, manual payout today); FM V3 fleet Connect OAuth onboarding (`stripeConnectService`); `wpay-settlement`'s `platformFeeService` (3% application_fee), `connectChargeMode`, `settlementService`, `fmDb.getFleetConnect`, `refund_application_fee`; vouchers payout engine as a *pattern* (no coupling). **The one missing primitive: a `stripe.transfers.create` transfer-OUT to a third-party connected account** — own it in `settlementService`. Connect-enabled fleets only (Suncadia is the pilot); The Line on legacy Stripe falls back to manual payout. Phasing: (1) partner identity + Connect onboarding; (2) standalone partner portal (magic-link auth, onboarding wizard, dashboard, book-for-client, reports); (3) automated scheduled payouts (on `wpay-settlement`); (4) full reporting. Full plan: `~/.claude/plans/we-need-a-way-noble-brook.md`.
 
 ### FR-060: De-VoloPass code scrub (legal) — remove "VoloPass"/"Volo" from ALL code
 - **Repo(s)/area**: cross-repo — vouchers + reservations + FM V3 + azure
