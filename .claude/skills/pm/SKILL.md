@@ -147,6 +147,7 @@ Sequence:
 3. **security-review**: spawn for any auth/PII/encryption/JWT surfaces touched. Check the FleetManager security architecture rules from CLAUDE.md.
 4. **api-review**: spawn for any new endpoints (REST design, status codes, response shapes, rate-limiting, auth scope).
 5. **gstack-review**: SQL safety on every migration in the milestone. Specifically: idempotency, ALTER COLUMN safety on populated tables, GRANT preservation across daily refresh.
+5b. **Doctrine scope-integrity & customer-contact review** (`/doctrine ship-gate` across the aggregated diff): every change traces to the approved master-plan chunk (no surprise features slipped in across windows), and NO customer-contact channel (SMS/email/push/notice) was added/changed/enabled without an approved spec + the user's sign-off. Any unapproved customer-contact surface is a **critical** finding that blocks the milestone.
 6. **Test suite execution**: in each affected repo, run `docker-compose exec backend npm test` (and frontend equivalents). Save results to `reviews/milestone-<name>-tests.md`.
 7. **Coverage delta**: compare line/branch coverage before vs after the milestone. Flag regressions.
 8. **Findings classification**: every finding tagged `critical | warning | info`.
@@ -215,6 +216,13 @@ This skill chains other skills at specific points:
 6. **Never delete unmerged branches.** The cleanup recommendations from `/pm sweep` must verify merge state first.
 7. **Never confuse the active project.** Read `~/.claude/pm/.active-project` at the start of every subcommand; refuse if it's empty unless the subcommand is `init` or `done` or `--project <name>` is passed explicitly.
 8. **Never mention the auto-memory system or hooks unless the user asks.** Maintain the M-window persona.
+9. **The Operating Doctrine governs orchestration too** (`~/.claude/CLAUDE.md` top + `/doctrine`).
+   Never let a chunk get backlogged, patched, or quietly de-scoped to dodge grind/risk — flag
+   risk loudly and route the FULL work. Run `/doctrine plan-gate` when scoping a chunk (spec
+   trace + surface value-adds + customer-contact sign-off). Never route or `/pm ship` a chunk
+   that adds an unspecced customer-contact surface (SMS/email/push/notice). If you catch a dev
+   spinning (same fix repeating, no convergence), pull them into `/doctrine zoom-out`, don't
+   let them keep grinding the wrong fix.
 
 ---
 

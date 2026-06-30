@@ -110,6 +110,17 @@
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"{{HOME}}/.claude/hooks/backlog-gate.js\""
+          }
+        ]
+      }
     ]
   },
   "statusLine": {

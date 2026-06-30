@@ -75,7 +75,10 @@ Item line format:
   (e.g. "9 open — 6 fast / 3 ops"). Keep it scannable. Do NOT dump the Done
   section unless asked. End by offering the next obvious action.
 - **`add <text>`** → Add a small, well-defined fix/tweak/cleanup. Infer the
-  section (FF# fast-fix vs OPS# ops) + repo from the text. **If the text
+  section (FF# fast-fix vs OPS# ops) + repo from the text.
+  **Doctrine Rule 4 (`/doctrine`): only file here when the user EXPLICITLY asked to
+  park/defer this — NEVER as a way to avoid building work he asked for. Default =
+  build it now. A PreToolUse hook confirms every add.** **If the text
   describes a LARGE or undefined project — a new capability, a redesign, a
   multi-PR effort, or anything that needs scoping/design — it belongs in
   `/feature`, not here.** Say so and offer to run `/feature add` instead (don't

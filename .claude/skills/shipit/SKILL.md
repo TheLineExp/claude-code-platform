@@ -74,6 +74,23 @@ git branch --show-current
 
 Verify you are on a feature branch. If on a protected branch → STOP.
 
+### Step 1b: Doctrine Ship Backstop (MANDATORY — fast if the plan gate was honored)
+
+The Operating Doctrine's primary gate runs at PLANNING (letsbuild Phase 0). This is the
+**backstop** — it catches only what slipped. Run `/doctrine ship-gate`:
+
+1. **Diff ⊆ approved scope.** Skim `git diff "origin/$STAGING"...HEAD`. Does every change
+   trace to what the user asked for or approved? Anything extra → surface it for a quick
+   confirm before shipping (don't silently ship unrequested behavior; don't hard-block
+   obvious value — confirm it).
+2. **Customer-contact backstop (HARD BLOCK).** Grep the diff for outbound-message surfaces:
+   ```bash
+   git diff "origin/$STAGING"...HEAD | rg -in "sms|twilio|sendEmail|resend|sendgrid|nodemailer|push(Notification)?|notif(y|ication)|outbound|sendMessage"
+   ```
+   If any customer-contact channel was added / changed / enabled **without an approved spec +
+   the user's sign-off → STOP the ship** and escalate.
+3. **Patch check (Rule 2).** Root-cause fix or symptom band-aid? If band-aid, fix the cause.
+
 ### Step 2: Run Code Review (optional)
 
 If `.claude/code-review-addons.md` exists, run `/code-review` first.

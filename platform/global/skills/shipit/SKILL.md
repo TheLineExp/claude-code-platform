@@ -22,6 +22,10 @@ Before running this skill, ensure:
    on `git diff origin/staging...HEAD` and fix every finding. This is the primary
    review gate — the PR should open clean. Never skip it, never "let CI/the Actions
    reviewer catch it."
+4. **Doctrine Ship Backstop done BEFORE push (Step 1b):** diff traces to the approved spec
+   (no surprise features) and NO customer-contact channel (SMS/email/push/notice) was added,
+   changed, or enabled without an approved spec + the user's sign-off. Backstop only — the
+   real gate is letsbuild Phase 0; this just catches what slipped.
 
 **Risk-scope the heavy checks below.** Steps 2 (traceability), 2b (action-feedback),
 and 3b (test-runner scenarios) are **required for feature / UI / multi-file PRs** but
@@ -118,6 +122,29 @@ basename "$(git rev-parse --show-toplevel)"
 - If on `staging`, `master`, or `main` → STOP. Tell the user: "Cannot ship from a protected branch. Create a feature branch first: `git checkout -b feature/w1-description`"
 - If on `feature/*` → proceed
 - If on any other branch → proceed with caution, warn the user
+
+### Step 1b: Doctrine Ship Backstop (MANDATORY — fast if the plan gate was honored)
+
+The Operating Doctrine's primary gate runs at PLANNING (letsbuild Phase 0). This is the
+**backstop** — it catches only what slipped. If planning was done right, it passes in
+seconds. Run `/doctrine ship-gate`:
+
+1. **Diff ⊆ approved scope.** Skim `git diff origin/staging...HEAD`. Does every change trace
+   to what the user asked for or approved? Anything extra → surface it for a quick confirm
+   before shipping (don't silently ship unrequested behavior; don't hard-block obvious value
+   — confirm it).
+2. **Customer-contact backstop (HARD BLOCK).** Grep the diff for outbound-message surfaces:
+   ```bash
+   git diff origin/staging...HEAD | rg -in "sms|twilio|clicksend|sendEmail|resend|sendgrid|nodemailer|push(Notification)?|notif(y|ication)|outbound|smsNotif|emailNotif|sendMessage"
+   ```
+   If any customer-contact channel was **added / changed / enabled without an approved spec +
+   sign-off → STOP the ship** and escalate. (Touching adjacent comms code with an approved
+   spec is fine — say so.)
+3. **Patch check (Rule 2).** Is this a root-cause fix or a symptom band-aid? If band-aid, fix
+   the cause — don't ship the patch.
+
+**Output:** one line — "Doctrine backstop: diff in scope, no unapproved customer-contact,
+root-cause fix" — or the specific block + escalation.
 
 ### Step 2: Run Traceability Review
 

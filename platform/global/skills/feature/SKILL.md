@@ -73,7 +73,10 @@ cross-repo list stays scannable:
   by priority with their `Repo(s)/area` tag and a one-line count summary at top
   (e.g. "10 open — 1 high / 6 med / 3 low; repos: 7 reservations, 3 FM V3").
   Don't dump the Incorporated archive unless asked. End by offering the next action.
-- **`add <description>`** → **size check FIRST**: if the description is a small,
+- **`add <description>`** → **Doctrine Rule 4 (`/doctrine`): only file here when the
+  user EXPLICITLY asked to park/defer this large item — never as a way to avoid scoping
+  work he asked you to start now. A PreToolUse hook confirms every add.** Then **size
+  check FIRST**: if the description is a small,
   already-defined fix / tweak / one-line change / contained UI affordance / ops
   chore, it is NOT a feature — say so and offer `/todo add` instead (don't file
   it as an FR). Only for genuinely large/undefined work: infer the `Repo(s)/area`

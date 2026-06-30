@@ -62,7 +62,32 @@ Each agent gets its own worktree directory:
 
 Worktrees share the same `.git` internals but have independent working files. Conflicts only surface at PR merge time.
 
-## Workflow — 3 Phases (Self-Healing)
+## Workflow — 4 Phases (0 + A–C, Self-Healing)
+
+### Phase 0: Doctrine / Plan Gate (run BEFORE any setup or code — MANDATORY)
+
+This is the **primary enforcement point** for the Operating Doctrine
+(`~/.claude/CLAUDE.md` top + `/doctrine`). Code does not get written until this passes.
+Run `/doctrine plan-gate` and produce explicit written answers — not "looks fine":
+
+1. **Spec trace.** Restate in 1–2 lines exactly what the user asked for. Everything you're
+   about to build must trace to that ask or to a recommendation he approved. Any part with
+   no trace is a surprise feature — cut it or get approval first.
+2. **Value-add recommendations (DO surface these).** Name any missing/adjacent capability
+   that would add real value — as a RECOMMENDATION, one line each (what + why). Build none
+   of it until the user says yes; then design it completely before coding.
+   (recommend → approve → design → build)
+3. **Customer-contact gate (HARD).** Does anything here send/alter/enable an outbound
+   message to a customer/rider — SMS, email, push, in-app notice, auto-call? If yes, list
+   each channel + trigger + template and confirm the user's written sign-off, or STOP and
+   get it. **Never start unspecced customer-contact work.**
+4. **Risk & length flag (loud + specific).** Name the real blast radius (systems, data,
+   money, customers), the genuine effort, the top risks — then proceed. Risk/length is
+   handled out loud, NOT by deferring or shrinking the task.
+5. **No-defer check.** Are you about to backlog or "phase-2" any of the asked work?
+   Default is build it now — park only with the user's explicit yes.
+
+If any item can't be satisfied, **resolve it with the user before proceeding to Phase A.**
 
 ### Phase A: Ground Truth Assessment
 

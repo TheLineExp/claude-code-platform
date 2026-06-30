@@ -83,12 +83,17 @@ ok "~/.claude/CLAUDE.md"
 # graphify-autoquery hook (verbatim — resolves paths at runtime) + statusline
 do_or_echo "cp '$GLOBAL_SRC/graphify-autoquery.js' '$HOME_FS/.claude/hooks/graphify-autoquery.js'"
 ok "~/.claude/hooks/graphify-autoquery.js"
+# backlog-gate hook (verbatim) — Operating Doctrine Rule 4: confirm-prompt every
+# /todo + /feature add so a model-initiated backlog can't pass silently. Registered
+# as a PreToolUse(Skill) hook in claude-settings.template.json. Fails open.
+do_or_echo "cp '$GLOBAL_SRC/backlog-gate.js' '$HOME_FS/.claude/hooks/backlog-gate.js'"
+ok "~/.claude/hooks/backlog-gate.js"
 do_or_echo "cp '$GLOBAL_SRC/statusline-command.sh' '$HOME_FS/.claude/statusline-command.sh'"
 do_or_echo "chmod +x '$HOME_FS/.claude/statusline-command.sh'"
 ok "~/.claude/statusline-command.sh"
 
-# user-global skills: the 7 vendored here (graphify, gstack-review, gstack-ship,
-# route, todo, feature, shipit) + pm from the platform's own .claude/skills.
+# user-global skills: the 8 vendored here (graphify, gstack-review, gstack-ship,
+# route, todo, feature, shipit, doctrine) + pm from the platform's own .claude/skills.
 # Back up any existing same-named skill dir before replacing it, so a rerun /
 # migration never silently discards local customizations.
 for s in "$GLOBAL_SRC"/skills/*/; do
