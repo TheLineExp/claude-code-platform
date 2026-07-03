@@ -22,16 +22,26 @@ Before running this skill, ensure:
    on `git diff origin/staging...HEAD` and fix every finding. This is the primary
    review gate — the PR should open clean. Never skip it, never "let CI/the Actions
    reviewer catch it."
-4. **Doctrine Ship Backstop done BEFORE push (Step 1b):** diff traces to the approved spec
+4. **Adversarial Parity Sweep done BEFORE push (Step 1b)** for any payment/refund/voucher,
+   state-transition, shared-helper, auth-gate, or concurrency change. `/code-review` reasons
+   about the diff on the happy path; it cannot see the sibling call site, parallel surface,
+   extra exit branch, or twin route where these bugs actually live — which is why they keep
+   coming back across 2–4 review rounds. Step 1b reads the whole surface. Not skippable for
+   those change types, including backend-only one-liners.
+5. **Doctrine Ship Backstop done BEFORE push (Step 1c):** diff traces to the approved spec
    (no surprise features) and NO customer-contact channel (SMS/email/push/notice) was added,
-   changed, or enabled without an approved spec + the user's sign-off. Backstop only — the
-   real gate is letsbuild Phase 0; this just catches what slipped.
+   changed, or enabled without an approved spec + Mike's sign-off. Backstop only — the real
+   gate is letsbuild Phase 0; this just catches what slipped.
 
 **Risk-scope the heavy checks below.** Steps 2 (traceability), 2b (action-feedback),
 and 3b (test-runner scenarios) are **required for feature / UI / multi-file PRs** but
-**skippable for one-line or backend-only fixes** — say which you skipped and why. The
-mandatory-every-ship steps are: local code review (above), changelog entry (Step 3),
-commit, and PR creation. The Actions reviewer is an opt-in safety-net, not a gate.
+**skippable for one-line or backend-only fixes** — say which you skipped and why.
+**Step 1b (Adversarial Parity Sweep) is the exception: it is scoped by change TYPE, not
+size.** It is required — never skippable — for any payment/refund/voucher, state-transition,
+shared-helper, auth-gate, or concurrency change, *including backend-only one-liners*, because
+that is exactly where the recurring multi-round bugs live. The mandatory-every-ship steps are:
+local code review + Step 1b where it applies (above), changelog entry (Step 3), commit, and PR
+creation. The Actions reviewer is an opt-in safety-net, not a gate.
 
 ## Repo Detection
 
@@ -41,8 +51,9 @@ commit, and PR creation. The Actions reviewer is an opt-in safety-net, not a gat
 |------|-------------------|---------------|-------------------|----------------|
 | FM V3 | `Fleetmanager_V3` | `TheLineExp/Fleetmanager_V3` | `main` | `staging` |
 | Reservations | `fleetmanager-reservations` | `TheLineExp/fleetmanager-reservations` | `master` | `staging` |
+| Vouchers | `fleetmanager-vouchers` | `TheLineExp/fleetmanager-vouchers` | `master` | `staging` |
 
-**CRITICAL: Get the production branch right. FM V3 uses `main`, Reservations uses `master`.**
+**CRITICAL: Get the production branch right. FM V3 uses `main`; Reservations and Vouchers use `master`.**
 
 ## Deployment Workflow
 
@@ -123,25 +134,95 @@ basename "$(git rev-parse --show-toplevel)"
 - If on `feature/*` → proceed
 - If on any other branch → proceed with caution, warn the user
 
-### Step 1b: Doctrine Ship Backstop (MANDATORY — fast if the plan gate was honored)
+### Step 1b: Adversarial Parity Sweep (MANDATORY for payment / state / shared / auth / concurrency changes)
+
+This is the gate that catches what `/code-review`'s diff scope cannot: **bugs in code you did
+NOT change.** Across the last ~250 external-reviewer findings, ~65% were one defect — a change
+that is locally correct but inconsistent with a sibling site it didn't touch — and most of the
+rest were concurrency interleavings or unhandled sub-cases. A diff-scoped, happy-path review
+cannot see any of them. **Required, never skippable** (even for a backend one-liner) whenever
+the diff touches: refunds/payments/vouchers/Stripe, a status or state transition, a shared
+helper or serializer, an auth/role gate, or anything concurrent. (Pure cosmetic/copy/CSS may
+skip it — say so.)
+
+**Run the sweep as agents, not prose.** Launch BOTH (in parallel, via the Agent tool):
+1. **`parity-sweep` agent** — covers Part 1 and Part 3 below (sibling call sites, twin
+   surfaces, config/deploy surfaces, legacy data, stale tests). Give it the branch + base.
+2. **`money-concurrency-reviewer` agent** — covers Part 2 below whenever the diff touches
+   payments/refunds/vouchers/Stripe/webhooks/balances/locks/state machines. Give it the
+   branch + base; it reads whole call chains on the FINAL HEAD.
+
+A sweep report with no CHECKED-CLEAN entries, or any BLOCK verdict, **blocks the ship** —
+fix and re-run. The checklists below define what the agents must cover (and are the manual
+fallback if agents are unavailable). Optionally use graphify for reverse blast radius if the
+graph is fresher than HEAD (`graphify update . --force` is free).
+
+**RE-REVIEW RULE (fix-the-fix killer):** every time you address review findings (yours,
+Codex's, or Mike's), re-run BOTH agents on the NEW HEAD before pushing the fix round.
+Historical data: review-response commits regularly introduce new P1s (one fix PR took 8
+external review rounds). A fix round is a new diff and gets the full gate.
+
+**Part 1 — Parity sweep (cross-site consistency).** For each symbol/route/flag/derived-value/guard/contract in the diff:
+```bash
+# every consumer of a symbol/helper you changed — are they ALL consistent with the new behavior?
+rg -n "<symbolOrHelperName>" backend/src frontend/src
+# twin-route parity: does the org↔distributor / staff↔public sibling exist AND carry the same gate?
+rg -n "<routePath>|requireRole|isManagerForFleet|requirePartnerRole" backend/src/routes
+# flag threaded through the WHOLE chain (not just the entry gate)?
+rg -n "allowClosedDays|mode:\s*'STAFF'|readOnly" backend/src
+# migration registered in BOTH canaries?
+rg -n "<migration_name>" backend/scripts/verify-schema.js backend/scripts/repair-migrations.js
+# any test still asserting the OLD shape/value?
+rg -n "<oldValueOrHeadingOrField>" -g '*.test.*'
+```
+RED FLAGS → BLOCK: a derived value (displayStatus, fleet-tz time, `waiverSigned`) rendered raw
+on a parallel surface; a flag set at one gate but re-rejected by a downstream sibling; a new
+route whose twin lacks the role gate; a client sending a field/route the server doesn't
+consume/expose; a migration missing from a canary; a test asserting the pre-change shape.
+
+**Part 2 — Adversarial state / concurrency.** For payment/state-machine/shared-mutable code, write the answer to each:
+- For EACH exit branch of the changed function, what value does it read or RESTORE — and is it
+  stale if a second request ran concurrently? (refund lock-release-to-stale-status, over-issue TOCTOU.)
+- Is every read of mutable balance/status/idempotency INSIDE the lock? Nothing read before the
+  lock that's used after it.
+- Is the idempotency key unique per logical operation AND written atomically under the lock?
+- After any reorder/refactor: diff the GUARD SET — did `amountCents<=0`, a status-in-set check,
+  or similar get dropped or bypassed? Re-derive the whole state machine; do NOT patch only the
+  reported symptom.
+BLOCK on any "it's stale / not under the lock / a guard moved."
+
+**Part 3 — Edge / sub-case / trust-boundary.** Enumerate explicitly (don't assume the common case):
+- Sub-cases under every new default/branch: no-payment, $0/negative, authorized-vs-captured,
+  already-refunded/returned, empty/single-element, reversed/zero-length window.
+- Trust-boundary inputs: string query/form flags parsed explicitly (NOT `Boolean(req.query.x)` —
+  `'false'` is truthy); fetched URLs canonicalized + private-range-blocked + byte-bounded (SSRF);
+  a new mutation/delivery route copies the adjacent route's auth gate.
+BLOCK on any unhandled sub-case or unguarded boundary input.
+
+**Output:** list what you swept, found, and fixed — e.g. "Parity: checked 3 consumers of
+`computeRefundable`, fixed month-serializer rendering raw status. Concurrency: moved
+`alreadyRefundedCents` read inside the lock. Edge: added no-payment + $0 guards." If you
+genuinely skipped this step, state which change type made it safe to skip.
+
+### Step 1c: Doctrine Ship Backstop (MANDATORY — fast if the plan gate was honored)
 
 The Operating Doctrine's primary gate runs at PLANNING (letsbuild Phase 0). This is the
-**backstop** — it catches only what slipped. If planning was done right, it passes in
-seconds. Run `/doctrine ship-gate`:
+**backstop** — it catches only what slipped through. If planning was done right, it passes
+in seconds. Run `/doctrine ship-gate`:
 
 1. **Diff ⊆ approved scope.** Skim `git diff origin/staging...HEAD`. Does every change trace
-   to what the user asked for or approved? Anything extra → surface it for a quick confirm
-   before shipping (don't silently ship unrequested behavior; don't hard-block obvious value
-   — confirm it).
+   to what Mike asked for or approved? Anything extra → surface it to Mike for a quick
+   confirm before shipping. (Don't silently ship unrequested behavior; don't hard-block
+   obvious value — confirm it.)
 2. **Customer-contact backstop (HARD BLOCK).** Grep the diff for outbound-message surfaces:
    ```bash
    git diff origin/staging...HEAD | rg -in "sms|twilio|clicksend|sendEmail|resend|sendgrid|nodemailer|push(Notification)?|notif(y|ication)|outbound|smsNotif|emailNotif|sendMessage"
    ```
    If any customer-contact channel was **added / changed / enabled without an approved spec +
-   sign-off → STOP the ship** and escalate. (Touching adjacent comms code with an approved
-   spec is fine — say so.)
-3. **Patch check (Rule 2).** Is this a root-cause fix or a symptom band-aid? If band-aid, fix
-   the cause — don't ship the patch.
+   Mike's sign-off → STOP the ship** and escalate. This is the gate that would have caught the
+   feedback-SMS. (Touching adjacent comms code with an approved spec is fine — say so.)
+3. **Patch check (Rule 2).** Is this a root-cause fix or a symptom band-aid? If band-aid,
+   it's not ready — fix the cause, don't ship the patch.
 
 **Output:** one line — "Doctrine backstop: diff in scope, no unapproved customer-contact,
 root-cause fix" — or the specific block + escalation.
@@ -244,7 +325,7 @@ Create a **per-branch changelog entry** instead of editing `docs/MASTER_PLAN.md`
 Every shipped feature or fix must have a verifiable test scenario in the Test Runner panel so testers can validate it in staging.
 
 1. **Read the diff** to understand what pages/flows were added or changed
-2. **Read the existing scenario data**: `c:\Users\MichaelKunz\Documents\fleetmanager\Fleetmanager_V3\frontend\src\plugins\testrunner\scenarioData.js`
+2. **Read the existing scenario data**: `"/Users/mikekunz/Documents/Volo Technologies/Fleetmanager_V3/frontend/src/plugins/testrunner/scenarioData.js"`
 3. **For each new or changed feature**, add or update a scenario entry with:
    - Unique ID (next available in the section, e.g., '1.13' for a new public flow)
    - Route patterns matching the page(s) affected
@@ -271,7 +352,7 @@ git add <specific-files> docs/changelog/*.md
 git commit -m "$(cat <<'EOF'
 <type>: <description>
 
-Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+Co-Authored-By: Claude <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -330,9 +411,38 @@ EOF
 
 Wait for CI checks to pass, then **report the PR as a clickable link with its verified live state** — `[TheLineExp/<repo>#<n>](<url>) — OPEN → staging (needs your merge)`, state checked via `gh pr view <n> --repo <owner/repo> --json state,baseRefName,url,mergedAt` right before writing. Do NOT merge — the user merges all PRs (both staging and production), so make the "needs your merge" link obvious and never make the user hunt for it.
 
+### Step 5b: PR-Ready Gate (MANDATORY before ANY "ready / done / shipped" claim)
+
+Never report a PR as ready from memory — a stale "ready" report is a defect. **Immediately
+before** the words "ready", "done", or "shipped" leave your mouth, verify LIVE state:
+
 ```bash
-# Check PR status
-gh pr checks <pr-number>
+# 1. All checks green
+gh pr checks <n> --repo <owner/repo>
+
+# 2. Zero unresolved review threads (Codex comments live here — this is the query that finds them)
+gh api graphql -f query='
+query($owner:String!, $repo:String!, $pr:Int!) {
+  repository(owner:$owner, name:$repo) {
+    pullRequest(number:$pr) {
+      reviewThreads(first:100) {
+        nodes { isResolved isOutdated path line comments(first:1){nodes{author{login} body}} }
+      }
+    }
+  }
+}' -f owner=<owner> -f repo=<repo> -F pr=<n> \
+  --jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved==false)] | length'
+```
+
+**BLOCK the "ready" report** if any check is failing or the unresolved-thread count is > 0:
+address every unresolved thread (fix + reply, or justify and resolve), re-run the Step 1b
+agents on the new HEAD (RE-REVIEW RULE), push, and re-check. Only a live result of
+"checks green + 0 unresolved threads" earns the word "ready".
+
+To reply to an inline review thread, use the WORKING recipe (do not guess payload shapes):
+```bash
+# reply to an existing inline comment (needs the comment's numeric id from /pulls/<n>/comments)
+gh api repos/<owner>/<repo>/pulls/<n>/comments/<comment_id>/replies -f body="Fixed in <sha>: <what changed>"
 ```
 
 Once the user merges, staging auto-deploys (~3-5 minutes). Verify the deploy completes:
@@ -346,6 +456,20 @@ gh run list --repo TheLineExp/fleetmanager-reservations --branch staging --limit
 ```
 
 ### Step 6: Create Production PR
+
+**PROD-PROMOTION GATE (MANDATORY — kills the double-review furnace).** Do NOT create the
+production PR until the staging PR(s) feeding it are CONVERGED. Two weeks of data show 14+
+prod PRs re-flagged with the *same or new* findings because staging fixes weren't finished
+before promotion — every one of those doubled the review cost. Verify, live:
+
+1. **Every staging PR in this release is merged AND had 0 unresolved review threads at merge**
+   (Step 5b query, run against each staging PR). If Codex flagged something on staging, the
+   fix must be merged to staging BEFORE the prod PR exists — never "fix it on the prod PR."
+2. **No open staging PRs** that overlap the same files (`gh pr list --base staging --state open`).
+3. If a finding was consciously NOT fixed, that needs Mike's explicit OK, in writing, per
+   doctrine Rule 4 — a deferred P1/P2 on a prod release is shipped, not deferred.
+
+Only after all three pass, create the prod PR.
 
 **IMPORTANT: Only CREATE the PR. Never merge it — the user merges production PRs manually.**
 
@@ -471,16 +595,27 @@ After the staging PR is created and CI passes, clean up the worktree:
 ```bash
 WINDOW_ID=$(cat .claude/window-id 2>/dev/null)
 BRANCH=$(git branch --show-current)
-MAIN_REPO="c:/Users/MichaelKunz/Documents/fleetmanager-reservations"
+REPO_NAME=$(basename "$(git worktree list | head -1 | awk '{print $1}')")
+MAIN_REPO=$(git worktree list | head -1 | awk '{print $1}')   # first entry is always the main checkout
 
-# Switch to main repo for cleanup commands
+# Switch to main repo for cleanup commands (quote — path contains a space)
 cd "$MAIN_REPO"
 
 # Remove the worktree
-git worktree remove "../fleetmanager-reservations-${WINDOW_ID}" 2>/dev/null
+git worktree remove "../${REPO_NAME}-${WINDOW_ID}"
 
 # Remove the active-work.md registration
 # (edit .claude/active-work.md to remove this agent's row)
+
+# GC pass: remove ALL other worktrees whose branch is merged and tree is clean
+# (git worktree remove refuses dirty trees — that refusal is the safety; never --force here)
+git worktree list --porcelain | awk '/^worktree /{print $2}' | tail -n +2 | while read -r WT; do
+  WTBRANCH=$(git -C "$WT" branch --show-current)
+  if [ -n "$WTBRANCH" ] && git merge-base --is-ancestor "$WTBRANCH" origin/staging 2>/dev/null; then
+    git worktree remove "$WT" 2>/dev/null && echo "GC'd merged worktree: $WT"
+  fi
+done
+git worktree prune
 ```
 
 **Do NOT delete the local branch or remote branch yet** — the PR needs them until it's merged.
@@ -494,7 +629,9 @@ git branch -d "$BRANCH"
 git push origin --delete "$BRANCH"
 ```
 
-Tell the user: "Worktree cleaned up. Open a new Claude Code window at the main repo for your next task."
+Tell the user: "Worktree cleaned up. **This session's feature is shipped — end this session
+now** and start the next task in a fresh window (`/letsbuild` there). One feature per session:
+marathon sessions burn context, hit compaction, and produce stale state."
 
 ## Error Handling
 
@@ -525,9 +662,9 @@ XREF=$(cat .claude/window-id | tr -d '[:space:]')
 BRANCH="feature/${XREF}-*"  # the branch slug
 
 REPOS=(
-  "c:/Users/MichaelKunz/Documents/fleetmanager-vouchers|TheLineExp/fleetmanager-vouchers"
-  "c:/Users/MichaelKunz/Documents/fleetmanager-reservations|TheLineExp/fleetmanager-reservations"
-  "c:/Users/MichaelKunz/Documents/fleetmanager/Fleetmanager_V3|TheLineExp/Fleetmanager_V3"
+  "/Users/mikekunz/Documents/Volo Technologies/fleetmanager-vouchers|TheLineExp/fleetmanager-vouchers"
+  "/Users/mikekunz/Documents/Volo Technologies/fleetmanager-reservations|TheLineExp/fleetmanager-reservations"
+  "/Users/mikekunz/Documents/Volo Technologies/Fleetmanager_V3|TheLineExp/Fleetmanager_V3"
 )
 
 for ENTRY in "${REPOS[@]}"; do
@@ -562,7 +699,7 @@ for each repo with changes (in deployment order):
   git add <files>
   git commit -m "<type>: <description>
 
-  Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>"
+  Co-Authored-By: Claude <noreply@anthropic.com>"
   git push origin "$BRANCH" -u
 
   # Create PR with cross-references

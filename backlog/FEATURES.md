@@ -1,5 +1,5 @@
 <!-- UNIFIED cross-repo FEATURE backlog. Maintained by the /feature skill (~/.claude/skills/feature/SKILL.md).
-     Spans ALL FleetManager repos: reservations / FM V3 / vouchers / azure-ops.
+     Spans ALL FleetManager repos: reservations / FM V3 / vouchers.
      This file lives in the claude-code-platform repo (backlog/FEATURES.md) and is git-synced
      across every dev machine. The /feature skill pulls before reading and commits+pushes after writing.
      SCOPE: LARGE, undefined feature projects — net-new capabilities or redesigns that need
@@ -99,7 +99,7 @@ _Migrated from `fleetmanager-reservations/docs/FEATURE_REQUESTS.md` on 2026-06-1
 - **Repo(s)/area**: azure / cross-repo — `deploy.yml` shared pattern across FM V3, reservations, vouchers (all `Single`-revision today)
 - **Status**: open
 - **Priority**: P1 (every prod deploy currently causes a brief user-facing outage)
-- **Phase-fit**: new phase — deploy/infra hardening (azure-ops). Builds on the existing custom-domain-binding guard in `deploy.yml`.
+- **Phase-fit**: new phase — deploy/infra hardening. Builds on the existing custom-domain-binding guard in `deploy.yml`.
 - **Requested**: 2026-06-20
 - **Source**: Prod incident 2026-06-20 — FM V3 web-prod 404'd during the PR #1061 deploy. Root cause: in-place `az containerapp update --image` swap in `Single` revision mode has no traffic overlap, so the ingress returns 404/503 for ~30–60s until the new revision is Healthy. minReplicas=1, so not scale-to-zero; binding stayed intact (not the 2026-05-21 failure mode).
 - **Description**: Move the prod container apps to **`Multiple` active-revisions mode** and change the deploy to a true blue-green cutover: bring the new revision up at **0% traffic**, wait until it reports Healthy (and optionally smoke-test it via its direct revision FQDN / a `--revision-suffix` label), then **shift 100% traffic** to it and retire the old revision. Eliminates the per-deploy 404 window AND unlocks **version testing in prod** — a new revision can be validated on a labeled URL (or canary traffic split, e.g. 90/10) before promotion, and rollback becomes an instant traffic re-point to the prior healthy revision instead of a redeploy.

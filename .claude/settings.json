@@ -83,46 +83,7 @@
           { "type": "command", "command": "bash .claude/hooks/block-destructive-git.sh" },
           { "type": "command", "command": "bash .claude/hooks/block-gh-merge.sh" },
           { "type": "command", "command": "bash .claude/hooks/block-rebase-interactive.sh" },
-          { "type": "command", "command": "bash .claude/hooks/block-file-redirect.sh" },
-          { "type": "command", "command": "bash .claude/hooks/check-work-registration.sh" },
-          { "type": "command", "command": "bash .claude/hooks/check-branch-prefix.sh" },
-          { "type": "command", "command": "bash .claude/hooks/enforce-worktree.sh" }
-        ]
-      },
-      {
-        "matcher": "Edit",
-        "hooks": [
-          { "type": "command", "command": "bash .claude/hooks/enforce-worktree.sh" }
-        ]
-      },
-      {
-        "matcher": "Write",
-        "hooks": [
-          { "type": "command", "command": "bash .claude/hooks/enforce-worktree.sh" }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "",
-        "hooks": [
-          { "type": "command", "command": "bash .claude/hooks/session-tracker.sh" }
-        ]
-      }
-    ],
-    "PostToolUseFailure": [
-      {
-        "matcher": "",
-        "hooks": [
-          { "type": "command", "command": "bash .claude/hooks/error-handler.sh" }
-        ]
-      }
-    ],
-    "PreCompact": [
-      {
-        "matcher": "auto",
-        "hooks": [
-          { "type": "command", "command": "bash .claude/hooks/compact-notifier.sh" }
+          { "type": "command", "command": "bash .claude/hooks/block-file-redirect.sh" }
         ]
       }
     ]

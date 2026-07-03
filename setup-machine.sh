@@ -1,156 +1,354 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Claude Code Development Platform — MACHINE bootstrap (user-global layer).
 #
-# This is the NEW-PC step that the per-repo setup.sh wizard does NOT do: it installs
-# the user-global Claude + Codex + Graphify config into ~/.claude, ~/.codex, ~/.graphify
-# from the sanitized templates in platform/global/, de-hardcoding all machine paths.
+# Syncs the managed set of user-global Claude Code files from platform/global/
+# into ~/.claude.  Single Mac machine; no template substitution needed.
+# For a future new machine: pass --home /path/to/new/home to override HOME,
+# or do a one-time  sed -i 's|/Users/mikekunz|/Users/newuser|g' on the
+# canonical templates after adapting them.
 #
 # Usage:
-#   bash setup-machine.sh                  # interactive
-#   REPOS_ROOT=/c/Users/you/Documents bash setup-machine.sh   # non-interactive root
-#   DRY_RUN=1 bash setup-machine.sh        # print actions, write nothing
-#
-# Idempotent: backs up any existing target to <file>.bak-<n> before overwriting.
-# Works on macOS, Linux, Windows (Git Bash / MSYS2).
-set -e
+#   bash setup-machine.sh          # sync mode: backup, apply, summarise
+#   bash setup-machine.sh --diff   # diff mode: no writes; exit 1 on drift
+#   bash setup-machine.sh --help
+#   bash setup-machine.sh --home /Users/newuser   # override home dir
+
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GLOBAL_SRC="$SCRIPT_DIR/platform/global"
 
+# ── colour helpers ────────────────────────────────────────────────────────────
 if [ -t 1 ]; then
-  GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; BLUE='\033[0;34m'; BOLD='\033[1m'; NC='\033[0m'
+  GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'
+  BLUE='\033[0;34m'; BOLD='\033[1m'; NC='\033[0m'
 else
   GREEN='' YELLOW='' RED='' BLUE='' BOLD='' NC=''
 fi
+say()    { echo -e "$@"; }
+ok()     { echo -e "  ${GREEN}[OK]${NC} $1"; }
+warn()   { echo -e "  ${YELLOW}[WARN]${NC} $1"; }
+added()  { echo -e "  ${GREEN}[ADDED]${NC} $1"; }
+changed(){ echo -e "  ${YELLOW}[CHANGED]${NC} $1"; }
+removed(){ echo -e "  ${RED}[REMOVED]${NC} $1"; }
+missing(){ echo -e "  ${RED}[MISSING]${NC} $1"; }
+stray()  { echo -e "  ${RED}[STRAY]${NC} $1"; }
 
-say()  { echo -e "$@"; }
-ok()   { echo -e "  ${GREEN}[OK]${NC} $1"; }
-warn() { echo -e "  ${YELLOW}[WARN]${NC} $1"; }
-do_or_echo() { if [ -n "$DRY_RUN" ]; then echo "  (dry-run) $*"; else eval "$@"; fi; }
-
-# --- Resolve HOME + REPOS_ROOT in forward-slash form ---
-HOME_FS="$(echo "${HOME:-$USERPROFILE}" | sed 's#\\#/#g')"
-if [ -z "$REPOS_ROOT" ]; then
-  # Default: the parent directory of this platform repo.
-  DEFAULT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-  read -rp "Repos root (where your repos live) [$DEFAULT_ROOT]: " REPOS_ROOT
-  REPOS_ROOT="${REPOS_ROOT:-$DEFAULT_ROOT}"
-fi
-REPOS_ROOT_FS="$(echo "$REPOS_ROOT" | sed 's#\\#/#g')"
-# MSYS double-slash drive form for Read() globs:  C:/Users/...  ->  /c/Users/...
-REPOS_ROOT_UNIX="$(echo "$REPOS_ROOT_FS" | sed -E 's#^([A-Za-z]):#/\L\1#')"
-REPOS_ROOT_UNIX="${REPOS_ROOT_UNIX#/}"   # strip a leading slash; template adds //
-
-say ""
-say "${BOLD}Machine bootstrap${NC}  HOME=$HOME_FS  REPOS_ROOT=$REPOS_ROOT_FS"
-say ""
-
-# --- Helper: backup-then-write (handles files AND directories) ---
-backup() {
-  local f="$1"
-  [ -e "$f" ] || return 0
-  local n=1; while [ -e "$f.bak-$n" ]; do n=$((n+1)); done
-  do_or_echo "cp -r '$f' '$f.bak-$n'"
-  warn "backed up existing $(basename "$f") -> $(basename "$f").bak-$n"
-}
-
-subst() {
-  # subst <src-template> <dest>  — replaces {{HOME}} {{REPOS_ROOT}} {{REPOS_ROOT_UNIX}}
-  sed \
-    -e "s#{{HOME}}#$HOME_FS#g" \
-    -e "s#{{REPOS_ROOT_UNIX}}#$REPOS_ROOT_UNIX#g" \
-    -e "s#{{REPOS_ROOT}}#$REPOS_ROOT_FS#g" \
-    "$1"
-}
-
-# --- Phase 1: ~/.claude global config ---
-say "${BLUE}=== ~/.claude (Claude Code user-global) ===${NC}"
-do_or_echo "mkdir -p '$HOME_FS/.claude/hooks' '$HOME_FS/.claude/skills' '$HOME_FS/.claude/plans'"
-
-# settings.json (strip the _comment line; substitute paths)
-backup "$HOME_FS/.claude/settings.json"
-if [ -z "$DRY_RUN" ]; then
-  subst "$GLOBAL_SRC/claude-settings.template.json" \
-    | grep -v '"_comment"' > "$HOME_FS/.claude/settings.json"
-fi
-ok "~/.claude/settings.json (paths de-hardcoded)"
-
-# CLAUDE.md (graphify protocol)
-backup "$HOME_FS/.claude/CLAUDE.md"
-if [ -z "$DRY_RUN" ]; then subst "$GLOBAL_SRC/claude-CLAUDE.template.md" > "$HOME_FS/.claude/CLAUDE.md"; fi
-ok "~/.claude/CLAUDE.md"
-
-# graphify-autoquery hook (verbatim — resolves paths at runtime) + statusline
-do_or_echo "cp '$GLOBAL_SRC/graphify-autoquery.js' '$HOME_FS/.claude/hooks/graphify-autoquery.js'"
-ok "~/.claude/hooks/graphify-autoquery.js"
-# backlog-gate hook (verbatim) — Operating Doctrine Rule 4: confirm-prompt every
-# /todo + /feature add so a model-initiated backlog can't pass silently. Registered
-# as a PreToolUse(Skill) hook in claude-settings.template.json. Fails open.
-do_or_echo "cp '$GLOBAL_SRC/backlog-gate.js' '$HOME_FS/.claude/hooks/backlog-gate.js'"
-ok "~/.claude/hooks/backlog-gate.js"
-do_or_echo "cp '$GLOBAL_SRC/statusline-command.sh' '$HOME_FS/.claude/statusline-command.sh'"
-do_or_echo "chmod +x '$HOME_FS/.claude/statusline-command.sh'"
-ok "~/.claude/statusline-command.sh"
-
-# user-global skills: the 8 vendored here (graphify, gstack-review, gstack-ship,
-# route, todo, feature, shipit, doctrine) + pm from the platform's own .claude/skills.
-# Back up any existing same-named skill dir before replacing it, so a rerun /
-# migration never silently discards local customizations.
-for s in "$GLOBAL_SRC"/skills/*/; do
-  [ -d "$s" ] || continue
-  name="$(basename "$s")"
-  backup "$HOME_FS/.claude/skills/$name"
-  do_or_echo "rm -rf '$HOME_FS/.claude/skills/$name' && cp -r '$s' '$HOME_FS/.claude/skills/$name'"
-  ok "skill: $name"
+# ── arg parsing ───────────────────────────────────────────────────────────────
+DIFF_MODE=0
+OVERRIDE_HOME=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --diff)   DIFF_MODE=1 ; shift ;;
+    --home)   OVERRIDE_HOME="$2"; shift 2 ;;
+    --help|-h)
+      say "Usage: bash setup-machine.sh [--diff] [--home <dir>]"
+      say ""
+      say "  (no flags)      Sync mode: back up managed live files, then apply canonical."
+      say "  --diff          Diff mode: print IDENTICAL/DIFFERS/MISSING/STRAY; exit 1 on drift."
+      say "  --home <dir>    Override HOME (default: \$HOME = $HOME)."
+      say ""
+      say "Managed set:"
+      say "  platform/global/skills/         -> ~/.claude/skills/        (mirror)"
+      say "  platform/global/agents/         -> ~/.claude/agents/        (mirror)"
+      say "  platform/global/claude-CLAUDE.template.md  -> ~/.claude/CLAUDE.md"
+      say "  platform/global/claude-settings.template.json -> ~/.claude/settings.json"
+      say "  platform/global/backlog-gate.js -> ~/.claude/hooks/backlog-gate.js"
+      say "  platform/global/statusline-command.sh -> ~/.claude/statusline-command.sh"
+      say ""
+      say "  Retired: ~/.claude/hooks/graphify-autoquery.js is REMOVED if present."
+      exit 0 ;;
+    *) echo "Unknown option: $1  (use --help)" >&2; exit 1 ;;
+  esac
 done
-if [ -d "$SCRIPT_DIR/.claude/skills/pm" ]; then
-  backup "$HOME_FS/.claude/skills/pm"
-  do_or_echo "rm -rf '$HOME_FS/.claude/skills/pm' && cp -r '$SCRIPT_DIR/.claude/skills/pm' '$HOME_FS/.claude/skills/pm'"
-  ok "skill: pm (from platform .claude/skills)"
-fi
 
-# unified cross-repo backlog pointer: /todo + /feature read this file to locate
-# the git-synced backlog dir (backlog/FEATURES.md + backlog/TODO.md) inside THIS
-# platform repo clone. Written per-machine so the path resolves anywhere.
-do_or_echo "mkdir -p '$SCRIPT_DIR/backlog'"
-if [ -z "$DRY_RUN" ]; then printf '%s\n' "$SCRIPT_DIR/backlog" > "$HOME_FS/.claude/backlog-location"; fi
-ok "~/.claude/backlog-location -> $SCRIPT_DIR/backlog"
+CLAUDE_HOME="${OVERRIDE_HOME:-$HOME}/.claude"
 
-# --- Phase 2: ~/.codex portable keys ---
-say ""
-say "${BLUE}=== ~/.codex (Codex CLI user-global) ===${NC}"
-if command -v codex >/dev/null 2>&1; then
-  do_or_echo "mkdir -p '$HOME_FS/.codex'"
-  if [ ! -f "$HOME_FS/.codex/config.toml" ]; then
-    do_or_echo "cp '$GLOBAL_SRC/codex-config.template.toml' '$HOME_FS/.codex/config.toml'"
-    ok "~/.codex/config.toml (from template — run 'codex login' to add auth)"
-  else
-    warn "~/.codex/config.toml exists — NOT overwritten. Merge the keys from platform/global/codex-config.template.toml manually (model, sandbox, features)."
+# ── sanity checks ─────────────────────────────────────────────────────────────
+[ -d "$GLOBAL_SRC" ] || { echo "ERROR: $GLOBAL_SRC not found." >&2; exit 1; }
+
+# ── backup helpers (sync mode only) ──────────────────────────────────────────
+BACKUP_DIR=""
+ensure_backup_dir() {
+  if [ -z "$BACKUP_DIR" ]; then
+    BACKUP_DIR="$CLAUDE_HOME/backups/$(date '+%Y-%m-%d-%H%M%S')"
+    mkdir -p "$BACKUP_DIR"
   fi
-else
-  warn "codex CLI not found on PATH — skipping. Install Codex, then re-run, or copy platform/global/codex-config.template.toml to ~/.codex/config.toml."
-fi
+}
 
-# --- Phase 3: Graphify ---
-say ""
-say "${BLUE}=== Graphify ===${NC}"
-if command -v graphify >/dev/null 2>&1; then
-  ok "graphify on PATH"
-  if [ -f "$HOME_FS/.graphify/global-graph.json" ]; then
-    ok "global graph present ($HOME_FS/.graphify/global-graph.json)"
+backup_path() {
+  # backup_path <live-path> <label-for-backup-subdir>
+  local src="$1" label="$2"
+  [ -e "$src" ] || return 0
+  ensure_backup_dir
+  local dest="$BACKUP_DIR/$label"
+  mkdir -p "$(dirname "$dest")"
+  cp -r "$src" "$dest"
+}
+
+# ── diff mode helpers ─────────────────────────────────────────────────────────
+DRIFT=0
+diff_file() {
+  local src="$1" live="$2" label="$3"
+  if [ ! -e "$live" ]; then
+    missing "MISSING  $label"
+    DRIFT=1
+  elif diff -q "$src" "$live" >/dev/null 2>&1; then
+    ok "IDENTICAL $label"
   else
-    warn "no global graph yet. Build it (costs API tokens, needs ANTHROPIC_API_KEY):"
-    say "       see docs/NEW_PC.md § Graphify for the per-repo extract commands."
+    say "  ${YELLOW}[DIFFERS]${NC} $label"
+    { diff -u "$live" "$src" || true; } | head -n 22 | sed 's/^/    /' || true
+    DRIFT=1
   fi
-else
-  warn "graphify not on PATH. Install per docs/NEW_PC.md, then the autoquery hook activates automatically."
+}
+
+# ── MANAGED FILE LIST ─────────────────────────────────────────────────────────
+#
+# Single files (src -> live)
+declare -a SRC_FILES=( \
+  "$GLOBAL_SRC/claude-CLAUDE.template.md" \
+  "$GLOBAL_SRC/claude-settings.template.json" \
+  "$GLOBAL_SRC/backlog-gate.js" \
+  "$GLOBAL_SRC/statusline-command.sh" \
+)
+declare -a LIVE_FILES=( \
+  "$CLAUDE_HOME/CLAUDE.md" \
+  "$CLAUDE_HOME/settings.json" \
+  "$CLAUDE_HOME/hooks/backlog-gate.js" \
+  "$CLAUDE_HOME/statusline-command.sh" \
+)
+
+# ── DIFF MODE ─────────────────────────────────────────────────────────────────
+if [ "$DIFF_MODE" -eq 1 ]; then
+  say "${BOLD}Diff mode — no writes${NC}  (canonical: $GLOBAL_SRC)"
+  say ""
+
+  # Single files
+  for i in "${!SRC_FILES[@]}"; do
+    src="${SRC_FILES[$i]}"
+    live="${LIVE_FILES[$i]}"
+    label="${live#"$CLAUDE_HOME/"}"
+    diff_file "$src" "$live" "$label"
+  done
+
+  # Retired file that must NOT exist
+  RETIRED="$CLAUDE_HOME/hooks/graphify-autoquery.js"
+  if [ -e "$RETIRED" ]; then
+    stray "STRAY    hooks/graphify-autoquery.js  (retired — should be removed)"
+    DRIFT=1
+  fi
+
+  say ""
+
+  # Skills mirror
+  say "  ${BLUE}Skills:${NC}"
+  for canonical_skill in "$GLOBAL_SRC/skills"/*/; do
+    [ -d "$canonical_skill" ] || continue
+    name="$(basename "$canonical_skill")"
+    live_skill="$CLAUDE_HOME/skills/$name"
+    if [ ! -d "$live_skill" ]; then
+      missing "MISSING  skills/$name"
+      DRIFT=1
+    else
+      # Compare each file in the skill dir
+      while IFS= read -r -d '' rel_src; do
+        rel="${rel_src#"$canonical_skill"}"
+        live_f="$live_skill/$rel"
+        if [ ! -f "$live_f" ]; then
+          missing "MISSING  skills/$name/$rel"
+          DRIFT=1
+        elif ! diff -q "$rel_src" "$live_f" >/dev/null 2>&1; then
+          say "  ${YELLOW}[DIFFERS]${NC} skills/$name/$rel"
+          { diff -u "$live_f" "$rel_src" || true; } | head -n 22 | sed 's/^/    /' || true
+          DRIFT=1
+        else
+          ok "IDENTICAL skills/$name/$rel"
+        fi
+      done < <(find "$canonical_skill" -type f -print0)
+    fi
+  done
+
+  # Stray skills (in live but not in canonical)
+  if [ -d "$CLAUDE_HOME/skills" ]; then
+    while IFS= read -r -d '' live_skill; do
+      name="$(basename "$live_skill")"
+      if [ ! -d "$GLOBAL_SRC/skills/$name" ]; then
+        stray "STRAY    skills/$name"
+        DRIFT=1
+      fi
+    done < <(find "$CLAUDE_HOME/skills" -mindepth 1 -maxdepth 1 -type d -print0)
+  fi
+
+  say ""
+
+  # Agents mirror
+  say "  ${BLUE}Agents:${NC}"
+  for canonical_agent in "$GLOBAL_SRC/agents"/*.md; do
+    [ -f "$canonical_agent" ] || continue
+    name="$(basename "$canonical_agent")"
+    live_agent="$CLAUDE_HOME/agents/$name"
+    diff_file "$canonical_agent" "$live_agent" "agents/$name"
+  done
+
+  # Stray agents
+  if [ -d "$CLAUDE_HOME/agents" ]; then
+    while IFS= read -r -d '' live_agent; do
+      name="$(basename "$live_agent")"
+      if [ ! -f "$GLOBAL_SRC/agents/$name" ]; then
+        stray "STRAY    agents/$name"
+        DRIFT=1
+      fi
+    done < <(find "$CLAUDE_HOME/agents" -maxdepth 1 -type f -name "*.md" -print0)
+  fi
+
+  say ""
+  if [ "$DRIFT" -eq 0 ]; then
+    say "${GREEN}${BOLD}No drift — live matches canonical.${NC}"
+    exit 0
+  else
+    say "${RED}${BOLD}Drift detected.${NC}  Run: bash setup-machine.sh"
+    exit 1
+  fi
+fi
+
+# ── SYNC MODE ─────────────────────────────────────────────────────────────────
+say ""
+say "${BOLD}Machine sync${NC}  canonical=$GLOBAL_SRC  live=$CLAUDE_HOME"
+say ""
+
+# Ensure directory structure
+mkdir -p "$CLAUDE_HOME/hooks" "$CLAUDE_HOME/skills" "$CLAUDE_HOME/agents" "$CLAUDE_HOME/backups"
+
+# Track changes for summary
+CHANGED_COUNT=0
+ADDED_COUNT=0
+REMOVED_COUNT=0
+
+sync_file() {
+  local src="$1" live="$2" label="$3"
+  mkdir -p "$(dirname "$live")"
+  if [ ! -e "$live" ]; then
+    cp "$src" "$live"
+    added "$label"
+    ADDED_COUNT=$((ADDED_COUNT + 1))
+  elif diff -q "$src" "$live" >/dev/null 2>&1; then
+    ok "$label"
+  else
+    backup_path "$live" "$label"
+    cp "$src" "$live"
+    changed "$label"
+    CHANGED_COUNT=$((CHANGED_COUNT + 1))
+  fi
+}
+
+# Single files
+say "${BLUE}=== Single files ===${NC}"
+for i in "${!SRC_FILES[@]}"; do
+  src="${SRC_FILES[$i]}"
+  live="${LIVE_FILES[$i]}"
+  label="${live#"$CLAUDE_HOME/"}"
+  sync_file "$src" "$live" "$label"
+done
+
+# Make statusline executable
+chmod +x "$CLAUDE_HOME/statusline-command.sh"
+
+# Remove retired file
+RETIRED="$CLAUDE_HOME/hooks/graphify-autoquery.js"
+if [ -e "$RETIRED" ]; then
+  backup_path "$RETIRED" "hooks/graphify-autoquery.js"
+  rm -f "$RETIRED"
+  removed "hooks/graphify-autoquery.js  (retired)"
+  REMOVED_COUNT=$((REMOVED_COUNT + 1))
 fi
 
 say ""
-say "${GREEN}${BOLD}Machine bootstrap complete.${NC}"
+say "${BLUE}=== Skills (mirror) ===${NC}"
+
+# Copy canonical skills
+for canonical_skill in "$GLOBAL_SRC/skills"/*/; do
+  [ -d "$canonical_skill" ] || continue
+  name="$(basename "$canonical_skill")"
+  live_skill="$CLAUDE_HOME/skills/$name"
+  if [ ! -d "$live_skill" ]; then
+    cp -r "$canonical_skill" "$live_skill"
+    added "skills/$name"
+    ADDED_COUNT=$((ADDED_COUNT + 1))
+  else
+    # File-level sync
+    while IFS= read -r -d '' rel_src; do
+      rel="${rel_src#"$canonical_skill"}"
+      live_f="$live_skill/$rel"
+      mkdir -p "$(dirname "$live_f")"
+      if [ ! -f "$live_f" ]; then
+        cp "$rel_src" "$live_f"
+        added "skills/$name/$rel"
+        ADDED_COUNT=$((ADDED_COUNT + 1))
+      elif ! diff -q "$rel_src" "$live_f" >/dev/null 2>&1; then
+        backup_path "$live_f" "skills/$name/$rel"
+        cp "$rel_src" "$live_f"
+        changed "skills/$name/$rel"
+        CHANGED_COUNT=$((CHANGED_COUNT + 1))
+      else
+        ok "skills/$name"
+      fi
+    done < <(find "$canonical_skill" -type f -print0)
+
+    # Remove live files not in canonical
+    while IFS= read -r -d '' live_f; do
+      rel="${live_f#"$live_skill/"}"
+      if [ ! -f "$canonical_skill/$rel" ]; then
+        backup_path "$live_f" "skills/$name/$rel"
+        rm -f "$live_f"
+        removed "skills/$name/$rel  (not in canonical)"
+        REMOVED_COUNT=$((REMOVED_COUNT + 1))
+      fi
+    done < <(find "$live_skill" -type f -print0)
+  fi
+done
+
+# Remove stray skill dirs (in live but not in canonical)
+if [ -d "$CLAUDE_HOME/skills" ]; then
+  while IFS= read -r -d '' live_skill; do
+    name="$(basename "$live_skill")"
+    if [ ! -d "$GLOBAL_SRC/skills/$name" ]; then
+      backup_path "$live_skill" "skills/$name"
+      rm -rf "$live_skill"
+      removed "skills/$name  (stray — not in canonical)"
+      REMOVED_COUNT=$((REMOVED_COUNT + 1))
+    fi
+  done < <(find "$CLAUDE_HOME/skills" -mindepth 1 -maxdepth 1 -type d -print0)
+fi
+
 say ""
-say "${BOLD}Next:${NC}"
-say "  1. Run the re-auth checklist (docs/NEW_PC.md § Secrets): claude login, codex login, gh auth login, az login."
-say "  2. Run 'bash setup.sh' to scaffold each repo from repos.json."
-say "  3. Restart Claude Code so it picks up ~/.claude/settings.json."
+say "${BLUE}=== Agents (mirror) ===${NC}"
+
+# Copy canonical agents
+for canonical_agent in "$GLOBAL_SRC/agents"/*.md; do
+  [ -f "$canonical_agent" ] || continue
+  name="$(basename "$canonical_agent")"
+  live_agent="$CLAUDE_HOME/agents/$name"
+  sync_file "$canonical_agent" "$live_agent" "agents/$name"
+done
+
+# Remove stray agent files
+if [ -d "$CLAUDE_HOME/agents" ]; then
+  while IFS= read -r -d '' live_agent; do
+    name="$(basename "$live_agent")"
+    if [ ! -f "$GLOBAL_SRC/agents/$name" ]; then
+      backup_path "$live_agent" "agents/$name"
+      rm -f "$live_agent"
+      removed "agents/$name  (stray — not in canonical)"
+      REMOVED_COUNT=$((REMOVED_COUNT + 1))
+    fi
+  done < <(find "$CLAUDE_HOME/agents" -maxdepth 1 -type f -name "*.md" -print0)
+fi
+
+say ""
+say "${BOLD}Summary:${NC}  added=$ADDED_COUNT  changed=$CHANGED_COUNT  removed=$REMOVED_COUNT"
+if [ -n "$BACKUP_DIR" ]; then
+  say "  Backups in: $BACKUP_DIR"
+fi
+say ""
+say "${GREEN}${BOLD}Sync complete.${NC}  Restart Claude Code to pick up changes."
 say ""

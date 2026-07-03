@@ -1,5 +1,5 @@
 <!-- UNIFIED cross-repo QUALITY-SWEEP backlog. Maintained by the /todo skill (~/.claude/skills/todo/SKILL.md).
-     Spans ALL FleetManager repos: reservations / FM V3 / vouchers / azure-ops.
+     Spans ALL FleetManager repos: reservations / FM V3 / vouchers.
      This file lives in the claude-code-platform repo (backlog/TODO.md) and is git-synced
      across every dev machine. The /todo skill pulls before reading and commits+pushes after writing.
      SCOPE: small, well-defined, lower-pri fixes/tweaks + ops/cleanup — groupable into a quality sweep.

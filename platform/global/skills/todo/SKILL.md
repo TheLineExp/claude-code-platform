@@ -1,6 +1,6 @@
 ---
 name: todo
-description: Personal running QUALITY-SWEEP backlog across ALL FleetManager repos (reservations / FM V3 / vouchers / azure-ops) — small, well-defined, lower-priority fixes/tweaks and ops/cleanup that can be batched into a quality sweep. Persistent + file-backed + cross-repo. Invoke with /todo to view the list; "/todo add ...", "/todo done ...", "/todo <filter>" to manage it. Use whenever the user says /todo, "my todos", "the backlog", "what's on my list", "add a follow-up", or wants to park/recall a small functional task. Distinct from /feature (LARGE, undefined projects that add functionality or redesign the product) and MASTER_PLAN.md (phase/planning tracking).
+description: Personal running QUALITY-SWEEP backlog across ALL FleetManager repos (reservations / FM V3 / vouchers) — small, well-defined, lower-priority fixes/tweaks and ops/cleanup that can be batched into a quality sweep. Persistent + file-backed + cross-repo. Invoke with /todo to view the list; "/todo add ...", "/todo done ...", "/todo <filter>" to manage it. Use whenever the user says /todo, "my todos", "the backlog", "what's on my list", "add a follow-up", or wants to park/recall a small functional task. Distinct from /feature (LARGE, undefined projects that add functionality or redesign the product) and MASTER_PLAN.md (phase/planning tracking).
 ---
 
 # /todo — running quality-sweep backlog

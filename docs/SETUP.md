@@ -1,75 +1,60 @@
-# Setup Guide
+# Setup
+
+One machine (Mike's Mac), one script. For a from-scratch Mac, use
+[NEW_PC.md](NEW_PC.md); this page covers the platform repo itself.
 
 ## Prerequisites
 
-- Git (2.20+)
-- Claude Code CLI or VS Code extension
-- Bash shell (macOS/Linux native, Windows via Git Bash or MSYS2)
+- macOS with git, bash, and `jq`
+- Claude Code (CLI or VS Code extension)
+- `gh` (GitHub CLI), authenticated
 
-## Installation
-
-### Option 1: GitHub Template (Recommended)
-
-1. Click "Use this template" on GitHub
-2. Clone your new repo
-3. Run `bash setup.sh`
-
-### Option 2: Clone and Configure
+## Install / sync
 
 ```bash
-git clone https://github.com/TheLineExp/claude-code-platform.git my-project
-cd my-project
-bash setup.sh
+cd "/Users/mikekunz/Documents/Volo Technologies"     # or: cd ~/vt
+git clone <this-repo> claude-code-platform            # if not already present
+cd claude-code-platform
+./setup-machine.sh
 ```
 
-### Option 3: Add to Existing Repo
+What it does (idempotent; backs up anything it overwrites to `*.bak-N`):
 
-Copy these directories into your existing repo:
-- `.claude/` (hooks, skills, agents, settings)
-- `hooks/` (git hooks)
-- `platform.config.json`
-- `CLAUDE.md`
+- Renders `platform/global/claude-settings.template.json` → `~/.claude/settings.json` and
+  `platform/global/claude-CLAUDE.template.md` → `~/.claude/CLAUDE.md`, substituting real
+  machine paths.
+- Syncs the 9 skills → `~/.claude/skills/` and the 3 agents → `~/.claude/agents/`.
+- Installs `backlog-gate.js` → `~/.claude/hooks/` and `statusline-command.sh`.
+- Writes `~/.claude/backlog-location` pointing at this repo's `backlog/` dir.
 
-Then run `bash hooks/install.sh`.
+Then **restart Claude Code** so it loads the new settings.
 
-## Platform-Specific Notes
+Note: `graphify-autoquery.js` is NOT deployed — it's retired (kept in `platform/global/`
+for reference only).
 
-### Windows (Git Bash / MSYS2)
-
-The platform handles Windows path normalization automatically (`C:\` → `/c/`). Git Bash is required — PowerShell is not supported for hooks.
-
-Verify Git Bash is working:
-```bash
-which bash  # Should return /usr/bin/bash or similar
-```
-
-### macOS
-
-Works out of the box. If using Homebrew git, ensure hooks are executable:
-```bash
-chmod +x .claude/hooks/*.sh hooks/*
-```
-
-### Linux
-
-Works out of the box. Same chmod step if needed.
-
-## Post-Setup
-
-1. **Review CLAUDE.md** — add your project-specific rules in the "Project Rules" section
-2. **Create addon files** — see [CUSTOMIZATION.md](CUSTOMIZATION.md) for project-specific checks
-3. **Copy settings.local.json.example** to `.claude/settings.local.json` for personal overrides
-4. **Run `/letsbuild`** in Claude Code to verify everything works
-
-## Verification
+## Drift check
 
 ```bash
-# Verify hooks are installed
-bash hooks/verify.sh
-
-# Verify platform config
-cat platform.config.json
-
-# Verify Claude settings
-cat .claude/settings.json | head -20
+./setup-machine.sh --diff
 ```
+
+Read-only. Prints IDENTICAL / DIFFERS / MISSING / STRAY per file and exits 1 on drift. Run
+it before every commit to this repo. Drift you didn't author means `~/.claude` was
+hand-edited — port the change into `platform/global/` if it's wanted, then re-sync.
+
+## The one rule
+
+**Never hand-edit `~/.claude`.** `setup-machine.sh` is the only writer. Edit
+`platform/global/` here, sync, commit.
+
+## Fleet repos
+
+Fleet repos (`fleetmanager-reservations`, `Fleetmanager_V3`, `fleetmanager-vouchers`) carry
+only guard hooks (`.claude/hooks/block-*.sh`, `enforce-worktree.sh`, ...) plus settings
+wiring — no skills or agents. Those are versioned inside each repo; nothing extra to set up
+beyond cloning and each repo's own hook install.
+
+## Path note
+
+The repos root `/Users/mikekunz/Documents/Volo Technologies/` contains a space — quote it
+in every command, or use the space-free symlink `~/vt`.

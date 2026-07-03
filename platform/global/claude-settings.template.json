@@ -1,5 +1,4 @@
 {
-  "_comment": "User-global ~/.claude/settings.json TEMPLATE. setup-machine.sh substitutes {{HOME}}, {{REPOS_ROOT}}, and {{REPOS_ROOT_UNIX}}. Do not commit a filled-in copy — it contains machine paths. {{HOME}} and {{REPOS_ROOT}} are forward-slash form (C:/Users/you/...). {{REPOS_ROOT_UNIX}} is the MSYS double-slash form (//c/Users/you/...) used by Read() globs on Git-Bash/Windows.",
   "permissions": {
     "allow": [
       "Read",
@@ -66,7 +65,7 @@
       "Bash(make:*)",
       "Bash(prisma:*)",
       "Bash(MSYS_NO_PATHCONV=1 docker:*)",
-      "Read(//{{REPOS_ROOT_UNIX}}/**)"
+      "Read(//Users/mikekunz/Documents/Volo Technologies/**)"
     ],
     "deny": [
       "Bash(rm -rf /*)",
@@ -78,11 +77,22 @@
       "Bash(git push origin master*)",
       "Bash(git push origin main*)",
       "Bash(git push origin +*)",
+      "Bash(git push origin --delete master*)",
+      "Bash(git push origin --delete main*)",
+      "Bash(git push origin --delete staging*)",
+      "Bash(git push origin -d master*)",
+      "Bash(git push origin -d main*)",
+      "Bash(git push origin -d staging*)",
+      "Bash(git push origin :master*)",
+      "Bash(git push origin :main*)",
+      "Bash(git push origin :staging*)",
+      "Bash(git push origin HEAD:master*)",
+      "Bash(git push origin HEAD:main*)",
+      "Bash(git push origin HEAD:staging*)",
+      "Bash(git push * HEAD:master*)",
+      "Bash(git push * HEAD:main*)",
       "Bash(git reset --hard*)",
       "Bash(git clean -f*)",
-      "Bash(git branch -D*)",
-      "Bash(git checkout --*)",
-      "Bash(git restore --source*)",
       "Bash(gh pr merge*)",
       "Bash(az containerapp delete*)",
       "Bash(az group delete*)",
@@ -96,28 +106,18 @@
     ],
     "defaultMode": "auto",
     "additionalDirectories": [
-      "{{REPOS_ROOT}}",
-      "{{HOME}}/.claude/plans"
+      "/Users/mikekunz/Documents/Volo Technologies",
+      "/Users/mikekunz/.claude/plans"
     ]
   },
   "hooks": {
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"{{HOME}}/.claude/hooks/graphify-autoquery.js\""
-          }
-        ]
-      }
-    ],
     "PreToolUse": [
       {
         "matcher": "Skill",
         "hooks": [
           {
             "type": "command",
-            "command": "node \"{{HOME}}/.claude/hooks/backlog-gate.js\""
+            "command": "node \"/Users/mikekunz/.claude/hooks/backlog-gate.js\""
           }
         ]
       }
@@ -127,7 +127,13 @@
     "type": "command",
     "command": "bash ~/.claude/statusline-command.sh"
   },
+  "autoMode": {
+    "allow": [
+      "$defaults",
+      "Post-merge git cleanup is pre-approved: `git worktree remove` (incl. --force) / `git worktree prune`, `git branch -d`/`-D`, and `git push origin --delete <branch>` for merged throwaway branches (feature/*, release/*, chore/backmerge*). Protected branches master, main, and staging stay deny-listed (never force-push or remote-delete them). Do not -D a branch that isn't confirmed merged."
+    ]
+  },
+  "effortLevel": "xhigh",
   "autoUpdatesChannel": "latest",
-  "skipAutoPermissionPrompt": true,
-  "effortLevel": "max"
+  "skipAutoPermissionPrompt": true
 }
