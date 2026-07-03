@@ -30,15 +30,18 @@ if echo "$COMMAND" | grep -qE '(>|>>)\s+/dev/'; then
   exit 0
 fi
 
-# Block redirect writes to files in the main repo
-if echo "$COMMAND" | grep -qE '\s+(>|>>)\s+[a-zA-Z./]'; then
-  echo "BLOCKED: File write via redirect detected in main repo." >&2
+# Block redirect writes to RELATIVE targets in the main repo (tracked files are
+# referenced by relative path). Absolute paths (/tmp, /dev), ~, and $VARs point
+# outside the tree and are harmless — don't false-positive on them.
+if echo "$COMMAND" | grep -qE '\s(>|>>)[[:space:]]*([a-zA-Z0-9_]|\./)'; then
+  echo "BLOCKED: File write via redirect to a repo-relative path detected in main repo." >&2
   echo "Code modifications must happen in a worktree. Run /letsbuild first." >&2
+  echo "(Writing to /tmp, /dev, ~/… or an absolute path outside the repo is fine.)" >&2
   exit 2
 fi
 
-if echo "$COMMAND" | grep -qE '\btee\s+[a-zA-Z./]'; then
-  echo "BLOCKED: File write via 'tee' detected in main repo." >&2
+if echo "$COMMAND" | grep -qE '\btee\s+([a-zA-Z0-9_]|\./)'; then
+  echo "BLOCKED: File write via 'tee' to a repo-relative path detected in main repo." >&2
   echo "Code modifications must happen in a worktree. Run /letsbuild first." >&2
   exit 2
 fi

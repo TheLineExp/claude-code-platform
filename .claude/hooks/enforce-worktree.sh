@@ -15,8 +15,19 @@ if [ -z "$FILE_PATH" ]; then
   exit 0
 fi
 
-# Get the main repo's absolute path
-MAIN_REPO=$(git rev-parse --show-toplevel 2>/dev/null)
+# Get the MAIN checkout's absolute path. NOT --show-toplevel: in a linked
+# worktree that returns the worktree root, so files inside the worktree would
+# look like they're "in the main repo" and get wrongly blocked. --git-common-dir
+# always resolves to the main repo's .git, whose parent is the main checkout.
+COMMON=$(git rev-parse --git-common-dir 2>/dev/null)
+if [ -z "$COMMON" ]; then
+  exit 0
+fi
+case "$COMMON" in
+  /*) ;;                        # already absolute
+  *) COMMON="$(pwd)/$COMMON" ;; # relative (e.g. ".git" from the main root)
+esac
+MAIN_REPO=$(cd "$(dirname "$COMMON")" 2>/dev/null && pwd)
 if [ -z "$MAIN_REPO" ]; then
   exit 0
 fi

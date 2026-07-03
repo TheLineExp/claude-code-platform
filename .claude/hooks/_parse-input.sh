@@ -27,7 +27,11 @@ if [ -n "$COMMAND" ]; then
   if echo "$COMMAND" | grep -qE '^(git |gh )'; then
     NEEDS_GIT_CHECK=true
   fi
-  if echo "$COMMAND" | grep -qE '(>\s|>>\s|\btee\b)'; then
+  # Redirect detection: `>`/`>>` followed by an eventual filename, WITH or
+  # WITHOUT a space (`>foo` and `> foo` both redirect). Exclude fd-dup forms
+  # (`>&`, `2>&1`) — the next char after `>` there is `&`, not a file. This is
+  # only a fast-path gate; block-file-redirect.sh does the precise check.
+  if echo "$COMMAND" | grep -qE '(>>?[[:space:]]*[^&|>[:space:]]|\btee\b)'; then
     NEEDS_FILE_CHECK=true
   fi
 fi
