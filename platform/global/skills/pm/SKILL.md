@@ -1,6 +1,6 @@
 ---
 name: pm
-description: Multi-window project orchestration. The invoking window becomes the M (manager/master) — coordinating dev windows, routing chunks of a master plan, verifying merges, running cross-system milestone reviews. Use for any project that spans multiple repos and parallel workstreams. Subcommands - `init` (set up artifacts dir from a master plan), `sweep` (multi-repo audit), `brief` (generate dev brief from a chunk), `route` (handoff prompt for next chunk), `verify` (confirm PR merged on origin), `status` (live roll-up), `roster` (active windows), `decisions open|answer`, `blocked` (escalation), `ship` (mark chunk done), `acceptance` (review evidence), `milestone` (cross-system review chain), `review` (one-off review), `done` (archive). Examples - `/pm init volopass C:/.../enchanted-riding-pnueli.md`, `/pm sweep`, `/pm brief P5`, `/pm milestone track-P-complete`, `/pm ship P5 53`.
+description: Multi-window project orchestration. The invoking window becomes the M (manager/master) — coordinating dev windows, routing chunks of a master plan, verifying merges, running cross-system milestone reviews. Use for any project that spans multiple repos and parallel workstreams. Subcommands - `init` (set up artifacts dir from a master plan), `sweep` (multi-repo audit), `brief` (generate dev brief from a chunk), `route` (handoff prompt for next chunk), `verify` (confirm PR merged on origin), `status` (live roll-up), `roster` (active windows), `decisions open|answer`, `blocked` (escalation), `ship` (mark chunk done), `acceptance` (review evidence), `milestone` (cross-system review chain), `review` (one-off review), `done` (archive). Examples - `/pm init volopass "/Users/mikekunz/Documents/Volo Technologies/plans/enchanted-riding-pnueli.md"`, `/pm sweep`, `/pm brief P5`, `/pm milestone track-P-complete`, `/pm ship P5 53`.
 ---
 
 # PM — Project Manager Skill
@@ -16,7 +16,7 @@ You are the **M (manager) window** for a multi-window project. Your job is to co
 ## Architecture
 
 ### Cross-repo persistence
-Project artifacts live at `~/.claude/pm/<project>/` (Windows: `C:\Users\<user>\.claude\pm\<project>\`). This survives repo cleanups, branch deletes, and window crashes. The currently active project is tracked in `~/.claude/pm/.active-project`.
+Project artifacts live at `~/.claude/pm/<project>/` (i.e. `/Users/mikekunz/.claude/pm/<project>/`). This survives repo cleanups, branch deletes, and window crashes. The currently active project is tracked in `~/.claude/pm/.active-project`.
 
 ### Files in `~/.claude/pm/<project>/`
 - `master-plan.md` — symlink or copy of the user's plan file (single source of truth for chunks)
@@ -27,7 +27,7 @@ Project artifacts live at `~/.claude/pm/<project>/` (Windows: `C:\Users\<user>\.
 - `briefs/chunk-<id>.md` — generated from master plan, given to each new dev window
 - `decisions/<YYYY-MM-DD>-<topic>.md` — decision docs (one per topic; never edit historical ones)
 - `reports/<YYYY-MM-DD>-status.md` — daily/on-demand snapshots
-- `reviews/milestone-<name>-{code,security,api,sql,tests}.md` — cross-system review outputs at milestones
+- `reviews/milestone-<name>-{code,security,parity,money,tests}.md` — cross-system review outputs at milestones
 - `archive/` — populated on `/pm done`
 
 ### Why append-only roster
@@ -68,7 +68,15 @@ Run scripts at `~/.claude/skills/pm/scripts/sweep.sh` for the heavy lifting.
 
 ### `/pm brief <chunk-id>`
 
-Output the dev brief for a chunk as a copy-paste-ready prompt for a new dev window. Source: `~/.claude/pm/<active-project>/briefs/chunk-<id>.md`. Surround it with the boilerplate "you are Dev-X working on chunk-Y, read the master plan at <path>" wrapper.
+**Default: output a ONE-LINE handoff pointer, NOT the brief body.** The brief file at `~/.claude/pm/<active-project>/briefs/chunk-<id>.md` already holds the full scope (files-owned, must-not-touch, ground-before-write, acceptance, workflow); the dev window reads it off disk. Dumping the whole block is what the user explicitly does NOT want. Emit exactly this line, filling `<window>`/`<title>` from the master-plan chunk row and `<project>` from `.active-project`:
+
+> Working dir: `<absolute-worktree-path>` (quote it in every command — it contains a space). You are Dev-`<window>` on PM project `<project>`. Read your brief at `~/.claude/pm/<project>/briefs/chunk-<id>.md` and the master plan at `~/.claude/pm/<project>/master-plan.md`, then execute chunk `<id>` (`<title>`). Report back to M when merged.
+
+Only print the full brief body if the user passes `--full` (`/pm brief <id> --full`). If the brief file doesn't exist yet, generate it from the template first, then emit the one-liner.
+
+**Hard rules for every dev-window handoff (applies to `/pm brief` AND `/pm route`):**
+- Dev-window handoff prompts are ONE LINE — a pointer to the brief file, never the brief body.
+- Every dev-window / subagent prompt MUST begin with the absolute working-directory (worktree) path; all commands use absolute quoted paths (the repos path contains a space; `~/vt` is a space-free symlink).
 
 ### `/pm route <window-id> <next-chunk-id>`
 
@@ -138,29 +146,24 @@ Show the acceptance checklist for a chunk + any evidence the dev has filed. If i
 
 Sequence:
 1. **Diff aggregation**: collect every PR merged for this milestone across all repos (typically a track or a release candidate). Generate per-repo unified diffs and a per-track summary file at `reviews/milestone-<name>-aggregated.md`.
-2. **code-reviewer agent**: spawn with a tailored prompt that includes:
+2. **`/code-review`**: run over the aggregated diff with tailored context:
    - The master plan context (so it understands the WHY)
    - The aggregated diff
    - The file-ownership matrix (so it knows which boundaries should NOT have been crossed)
    - Specific cross-repo invariants to check (e.g., "Reservations consumes Vouchers' validateVoucher response shape — confirm the new fields are additive")
    Save output to `reviews/milestone-<name>-code-review.md`.
 3. **security-review**: spawn for any auth/PII/encryption/JWT surfaces touched. Check the FleetManager security architecture rules from CLAUDE.md.
-4. **api-review**: spawn for any new endpoints (REST design, status codes, response shapes, rate-limiting, auth scope).
-5. **gstack-review**: SQL safety on every migration in the milestone. Specifically: idempotency, ALTER COLUMN safety on populated tables, GRANT preservation across daily refresh.
-5b. **Doctrine scope-integrity & customer-contact review** (`/doctrine ship-gate` across the aggregated diff): every change traces to the approved master-plan chunk (no surprise features slipped in across windows), and NO customer-contact channel (SMS/email/push/notice) was added/changed/enabled without an approved spec + the user's sign-off. Any unapproved customer-contact surface is a **critical** finding that blocks the milestone.
+4. **parity-sweep agent**: whole-surface parity pass for any payment/state-transition/shared-helper/auth-gate/concurrency change in the milestone — the recurring bugs live in code the diff did NOT touch (sibling call sites, twin routes, parallel serializers, other exit branches).
+5. **money-concurrency-reviewer agent**: adversarial money/state/concurrency review of every payment, refund, voucher, and migration surface in the milestone (atomicity, idempotency, races, stranded-state reapers).
+5b. **Doctrine scope-integrity & customer-contact review** (`/doctrine ship-gate` across the aggregated diff): every change traces to the approved master-plan chunk (no surprise features slipped in across windows), and NO customer-contact channel (SMS/email/push/notice) was added/changed/enabled without an approved spec + Mike's sign-off. Any unapproved customer-contact surface is a **critical** finding that blocks the milestone.
 6. **Test suite execution**: in each affected repo, run `docker-compose exec backend npm test` (and frontend equivalents). Save results to `reviews/milestone-<name>-tests.md`.
 7. **Coverage delta**: compare line/branch coverage before vs after the milestone. Flag regressions.
 8. **Findings classification**: every finding tagged `critical | warning | info`.
 9. **Block-ship decision**: if any `critical` finding, the milestone is BLOCKED. The user must explicitly resolve before any chunk in the milestone can `/pm ship`.
 
-Optional steps (run with `--full`):
-- **deploy-verifier** if the milestone implies a staging or production deploy
-- **realworld-user** for golden-path E2E
-- **env-audit** for env-var drift across staging vs production
-
 ### `/pm review`
 
-One-off review without the full milestone machinery. Pass a PR number or branch name. Spawns code-reviewer + security-review (if security-relevant) + api-review (if endpoints changed). Saves to `reviews/oneoff-<YYYY-MM-DD-HH-MM>.md`.
+One-off review without the full milestone machinery. Pass a PR number or branch name. Runs `/code-review` + security-review (if security-relevant) + the parity-sweep and money-concurrency-reviewer agents (if payment/state/shared/auth/concurrency surfaces changed). Saves to `reviews/oneoff-<YYYY-MM-DD-HH-MM>.md`.
 
 ### `/pm done`
 
@@ -193,13 +196,10 @@ This skill chains other skills at specific points:
 
 | Trigger | Skill called | Purpose |
 |---|---|---|
-| `/pm sweep` (optional) | `env-audit` | Cross-environment env-var drift |
-| `/pm milestone` step 2 | `code-reviewer` agent | Cross-repo code quality |
+| `/pm milestone` step 2 | `/code-review` | Cross-repo code quality |
 | `/pm milestone` step 3 | `security-review` | PII/auth/encryption |
-| `/pm milestone` step 4 | `api-review` | REST API design |
-| `/pm milestone` step 5 | `gstack-review` | SQL safety |
-| `/pm milestone --full` | `deploy-verifier` | Post-deploy health |
-| `/pm milestone --full` | `realworld-user` | E2E golden path |
+| `/pm milestone` step 4 | `parity-sweep` agent | Whole-surface parity (sibling call sites, twin routes, serializers) |
+| `/pm milestone` step 5 | `money-concurrency-reviewer` agent | Money/state-transition/concurrency safety (incl. migrations) |
 | `/pm ship` (after final chunk) | `shipit` | Production deploy workflow |
 
 `shipit` is invoked manually by the user when a track is fully merged on staging and ready for production. The PM does NOT auto-invoke `shipit` — production deploys remain a user-driven decision.

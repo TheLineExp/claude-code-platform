@@ -1,67 +1,71 @@
-#!/bin/bash
-# Install git hooks and Claude Code platform hooks.
+#!/usr/bin/env bash
+# Install git hooks for the current repository.
 # Run once after cloning: bash hooks/install.sh
 #
-# Two installation methods:
-#   1. Copy hooks to .git/hooks/ (default, works everywhere)
-#   2. Set core.hooksPath to hooks/ (alternative, auto-updates)
+# Copies pre-commit and pre-push from hooks/ into .git/hooks/,
+# makes Claude Code guard-hook scripts executable, and ensures
+# the active-work sentinel files exist.
+#
+# macOS / Linux only.
 
-set -e
+set -euo pipefail
 
-REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-if [ -z "$REPO_ROOT" ]; then
-  echo "ERROR: Not a git repository. Run this from inside a git repo."
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || {
+  echo "ERROR: Not a git repository.  Run this from inside a cloned repo." >&2
   exit 1
-fi
+}
 
 HOOKS_DIR="$REPO_ROOT/hooks"
 GIT_HOOKS_DIR="$REPO_ROOT/.git/hooks"
+CLAUDE_HOOKS_DIR="$REPO_ROOT/.claude/hooks"
 
 echo "Installing Claude Code Development Platform hooks..."
 
-# --- Method 1: Copy to .git/hooks/ ---
+# ── git hooks (pre-commit, pre-push) ─────────────────────────────────────────
 for hook in pre-commit pre-push; do
   if [ -f "$HOOKS_DIR/$hook" ]; then
     cp "$HOOKS_DIR/$hook" "$GIT_HOOKS_DIR/$hook"
     chmod +x "$GIT_HOOKS_DIR/$hook"
-    echo "  [OK] Installed $hook"
+    echo "  [OK] Installed git hook: $hook"
   fi
 done
 
-# --- Ensure Claude Code hooks are executable ---
-CLAUDE_HOOKS_DIR="$REPO_ROOT/.claude/hooks"
+# ── Claude Code guard hooks: ensure executable ────────────────────────────────
 if [ -d "$CLAUDE_HOOKS_DIR" ]; then
-  chmod +x "$CLAUDE_HOOKS_DIR"/*.sh 2>/dev/null || true
+  while IFS= read -r -d '' f; do
+    chmod +x "$f"
+  done < <(find "$CLAUDE_HOOKS_DIR" -maxdepth 1 -name "*.sh" -print0 2>/dev/null)
   echo "  [OK] Claude Code hooks made executable"
 fi
 
-# --- Ensure window-id sentinel exists ---
+# ── window-id sentinel ────────────────────────────────────────────────────────
 WINDOW_ID="$REPO_ROOT/.claude/window-id"
 if [ ! -f "$WINDOW_ID" ]; then
+  mkdir -p "$(dirname "$WINDOW_ID")"
   echo "setup" > "$WINDOW_ID"
   echo "  [OK] Created window-id sentinel"
 fi
 
-# --- Ensure active-work.md exists ---
+# ── active-work registry ──────────────────────────────────────────────────────
 ACTIVE_WORK="$REPO_ROOT/.claude/active-work.md"
 if [ ! -f "$ACTIVE_WORK" ]; then
-  cat > "$ACTIVE_WORK" << 'EOF'
-| Window | Branch | Worktree Path | Area | Started |
-|--------|--------|---------------|------|---------|
-EOF
+  mkdir -p "$(dirname "$ACTIVE_WORK")"
+  printf '| Window | Branch | Worktree Path | Area | Started |\n'        > "$ACTIVE_WORK"
+  printf '|--------|--------|---------------|------|---------|\\n'         >> "$ACTIVE_WORK"
   echo "  [OK] Created active-work.md"
 fi
 
-# --- Ensure plans directory exists ---
+# ── plans directory ───────────────────────────────────────────────────────────
 mkdir -p "$REPO_ROOT/.claude/plans"
 
 echo ""
-echo "Installation complete!"
+echo "Installation complete."
 echo ""
-echo "Hooks installed:"
-echo "  Git:    pre-commit, pre-push"
-echo "  Claude: $(ls "$CLAUDE_HOOKS_DIR"/*.sh 2>/dev/null | wc -l | tr -d ' ') Claude Code hooks"
+echo "Git hooks: pre-commit, pre-push"
+HOOK_COUNT=0
+if [ -d "$CLAUDE_HOOKS_DIR" ]; then
+  HOOK_COUNT=$(find "$CLAUDE_HOOKS_DIR" -maxdepth 1 -name "*.sh" 2>/dev/null | wc -l | tr -d ' ')
+fi
+echo "Claude guard hooks: $HOOK_COUNT"
 echo ""
-echo "Next steps:"
-echo "  1. Review CLAUDE.md for project rules"
-echo "  2. Run /letsbuild to start your first feature"
+echo "Next: open Claude Code and run /letsbuild to start a feature."

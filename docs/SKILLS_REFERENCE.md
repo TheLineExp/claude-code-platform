@@ -1,98 +1,94 @@
-# Skills Reference
+# Skills & Agents Reference
 
-## Core Workflow
+Canonical source: `platform/global/skills/*/SKILL.md` and `platform/global/agents/*.md`.
+This page summarizes; the SKILL.md files are authoritative. Everything here is user-global
+(synced to `~/.claude` by `setup-machine.sh`) — there are no per-repo skills or agents.
+
+## Skills (9)
+
+### `/doctrine`
+The Operating Doctrine — five non-negotiable engineering rules (do the work / root-cause
+not patch / detect spinning / no unilateral backlog / no surprise features) plus the gates
+that enforce them: the PLANNING gate before any code, the SHIP backstop before deploying,
+the ZOOM-OUT protocol when spinning, and an AUDIT mode for plans/diffs/sessions.
+Auto-referenced by letsbuild (plan gate), shipit (ship backstop), and pm (M-window rules).
 
 ### `/letsbuild`
-**Tier:** Minimal | **Purpose:** Multi-agent safe start
-
-Creates an isolated git worktree, assigns a window ID, creates a feature branch, and registers work. Self-healing — cleans up stale state automatically.
-
-**Usage:** Run at the start of every new task. Mandatory before any code changes.
+Safe feature-start workflow. Creates an isolated git worktree, assigns a window ID, creates
+the feature branch, and registers the work — mandatory before starting anything, so
+parallel agent windows can't overwrite each other. Self-healing: cleans up stale state from
+previous sessions. Runs the doctrine plan-gate at Phase 0.
 
 ### `/shipit`
-**Tier:** Standard | **Purpose:** Deployment workflow
+Ship workflow: commit, push, staging PR → production PR. Gates on the way out:
+`parity-sweep` + `money-concurrency-reviewer` agent passes, the doctrine ship backstop, the
+**PR-Ready gate** (checks green + zero unresolved review threads before any "ready" claim),
+and the **prod-promotion gate** (staging must be converged first). Rotates the session
+after shipping.
 
-Commits changes, pushes feature branch, creates staging PR, optionally creates production PR. Includes conflict pre-check, changelog generation, and worktree cleanup.
+### `/code-review` *(built-in)*
+Claude Code's built-in diff review — the review pathway, paired with the three agents
+below for money/state/cross-layer changes.
 
-**Usage:** When you're ready to deploy. Says "ship it" or invoke directly.
+### `/route`
+Quota-aware task routing. Delegates mechanical, low-judgment work (bulk edits, grep
+sweeps, file reads + summary, test runs, doc updates from a known spec) to a Sonnet
+subagent, keeping high-judgment work (architecture, debugging, review, planning, novel
+code) on the main Opus thread. Invoked proactively, not just on `/route`.
+
+### `/graphify`
+Any input (code, docs, papers) → knowledge graph, plus query/explain/affected/path
+commands over it. Used on demand for codebase questions; graph-first before planning or
+editing shared/cross-repo code. (The old auto-consult prompt hook is retired.)
+
+### `/pm`
+Multi-window project orchestration. The invoking window becomes the manager — routing
+chunks of a master plan to dev windows, verifying merges, running cross-system milestone
+reviews. Subcommands: `init`, `sweep`, `brief`, `route`, `verify`, `status`, `roster`,
+`decisions`, `blocked`, `ship`, `acceptance`, `milestone`, `review`, `done`.
+
+### `/todo`
+Cross-repo QUALITY-SWEEP backlog for SMALL, well-defined fixes/tweaks/ops across the fleet
+repos. Persistent, file-backed (`backlog/TODO.md` in this repo), cross-machine. Every add
+is confirmed by the `backlog-gate` hook (Doctrine Rule 4 — no unilateral backlog).
 
 ### `/feature`
-**Tier:** Full | **Purpose:** Feature request management
+Cross-repo backlog for LARGE, undefined feature projects (net-new capabilities or
+redesigns needing scoping/design, typically multi-PR) across the fleet repos. File-backed
+(`backlog/FEATURES.md`). Also gated by `backlog-gate`. Distinct from `/todo` (small,
+well-defined) and per-repo MASTER_PLAN.md (phase tracking).
 
-Tracks feature requests in `docs/FEATURE_REQUESTS.md`. Add, review, or list requests.
+### `/traceability-review`
+End-to-end call-chain verification: traces every button, link, and form action through
+UI → API client → backend route → service → database, verifying function signatures,
+argument passing, and return shapes match at every boundary. Use after multi-layer
+features and before deploying. Backed by the `traceability-reviewer` agent.
 
-**Usage:** `/feature add <description>`, `/feature review`, `/feature list`
+## Agents (3) — `platform/global/agents/`
 
----
+### `parity-sweep`
+Blast-radius parity sweeper. Given a branch/diff touching payments/refunds/vouchers, state
+transitions, shared helpers/serializers, auth gates, config surfaces, or concurrency, it
+enumerates every sibling call site, twin surface, config surface, and legacy-data
+implication and verifies each is consistent with the change. Read-only; returns PASS/BLOCK.
+Exists because ~65% of external-reviewer P1/P2s were locally-correct changes whose sibling
+surface was missed (see the audit). Run before every ship and after every review-fix round.
 
-## Review Skills
+### `money-concurrency-reviewer`
+Adversarial money-path and concurrency reviewer. Run on the FINAL HEAD of any change
+touching payments, refunds, settlements, vouchers, Stripe/webhooks, balances, idempotency,
+locks, or state machines — before push AND again after every review-fix round (fixes
+introduce new bugs). Reads whole call chains, never snippets; returns verified P1/P2
+findings with exact interleavings. Exists because ~40% of P1s were TOCTOU/stale-snapshot.
 
-### `/code-review`
-**Tier:** Standard | **Purpose:** Post-implementation code review
+### `traceability-reviewer`
+End-to-end call-chain checker across the FleetManager + Reservations stack (the engine
+behind `/traceability-review`). Verifies signatures, argument names/types, and return
+shapes at every layer boundary after cross-layer features or API-client/route refactors.
 
-Generic quality/security/performance checklist + project-specific addon (`code-review-addons.md`). Can invoke the `code-reviewer` agent for deep analysis.
+## Retired — do not reference
 
-### `/security-review`
-**Tier:** Full | **Purpose:** Security audit
-
-OWASP Top 10 checklist + project-specific security profile (`security-review-addons.md`).
-
-### `/api-review`
-**Tier:** Full | **Purpose:** REST API design review
-
-Evaluates RESTful design, pagination, status codes, auth, validation. Project-specific via `api-review-addons.md`.
-
-### `/pre-deploy`
-**Tier:** Standard | **Purpose:** Deployment readiness
-
-10-section checklist: code quality, security, testing, database, API, config, performance, monitoring, docs, project-specific. Produces READY/NOT_READY verdict.
-
----
-
-## Plan Review Skills
-
-### `/plan-eng-review`
-**Tier:** Standard | **Purpose:** Engineering architecture review
-
-4-section review: architecture, code quality forecast, test coverage plan, performance & failure modes. Rates each 1-5 with specific findings.
-
-### `/plan-design-review`
-**Tier:** Full | **Purpose:** UX and design review
-
-7-pass review: info architecture, states, user journey, AI slop detection, design system, responsive, key decisions. Rates each 0-10.
-
-### `/plan-ceo-review`
-**Tier:** Full | **Purpose:** Founder-mode strategy review
-
-Challenges premises, applies 10-star framework, analyzes opportunity cost. Four modes: scope expansion, selective expansion, hold scope, scope reduction.
-
----
-
-## Utility Skills
-
-### `/retro`
-**Tier:** Standard | **Purpose:** Weekly engineering retrospective
-
-Analyzes git history for commit patterns, per-person contributions, hotspots, work sessions. Persists snapshots for trend tracking.
-
-**Usage:** `/retro` (last 7 days) or `/retro 14d` (custom window)
-
-### `/document-release`
-**Tier:** Full | **Purpose:** Post-ship documentation sync
-
-Audits README, ARCHITECTURE, CONTRIBUTING, CLAUDE.md against the diff. Polishes CHANGELOG, cleans up TODOs.
-
-### `/token-audit`
-**Tier:** Standard | **Purpose:** Context efficiency monitor
-
-Measures token footprint of CLAUDE.md, memory, skills, agents, settings. Identifies waste, duplication, staleness.
-
-### `/perf-test`
-**Tier:** Full | **Purpose:** Performance benchmarks and load testing
-
-Runs service-level benchmarks and HTTP load tests with configurable profiles (smoke, light, medium, stress).
-
-### `/effort-optimizer`
-**Tier:** Full | **Purpose:** Dynamic effort level recommendations
-
-Classifies the current task and recommends optimal `/effort` level and `/model` for cost/quality balance.
+- `gstack-ship`, `gstack-review` (replaced by `/shipit` + `/code-review` + agents)
+- `graphify-autoquery.js` prompt hook (junk graph-node injection)
+- The old per-repo skill/agent copies and the old agents
+  (code-reviewer / perf-tester / error-fixer / deploy-verifier)

@@ -1,35 +1,47 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Claude Code Development Platform — multi-repo scaffolder.
 #
-# Iterates repos.json: for each repo, clone (if absent), install git hooks, scaffold
-# .env files from their examples, and register the graphify per-repo post-commit hook.
-# This is the "link to my repos" step. To target a different repo set, edit repos.json.
+# Reads repos.json; for each repo: clones if absent, installs git hooks,
+# scaffolds .env files from their *.example siblings, and registers the
+# graphify per-repo post-commit hook (if graphify is installed).
 #
 # Usage:
-#   bash setup-repos.sh                 # interactive root
-#   REPOS_ROOT=/c/Users/you/Documents bash setup-repos.sh
+#   bash setup-repos.sh              # use repos.json reposRoot or parent of this repo
+#   REPOS_ROOT="/path/to/repos" bash setup-repos.sh
 #   DRY_RUN=1 bash setup-repos.sh
-set -e
+
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MANIFEST="$SCRIPT_DIR/repos.json"
 
-if [ -t 1 ]; then GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; BOLD='\033[1m'; NC='\033[0m'
-else GREEN='' YELLOW='' BLUE='' BOLD='' NC=''; fi
+# ── colour helpers ────────────────────────────────────────────────────────────
+if [ -t 1 ]; then
+  GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; BOLD='\033[1m'; NC='\033[0m'
+else
+  GREEN='' YELLOW='' BLUE='' BOLD='' NC=''
+fi
 ok()   { echo -e "  ${GREEN}[OK]${NC} $1"; }
 warn() { echo -e "  ${YELLOW}[WARN]${NC} $1"; }
-run()  { if [ -n "$DRY_RUN" ]; then echo "  (dry-run) $*"; else eval "$@"; fi; }
+run()  {
+  if [ -n "${DRY_RUN:-}" ]; then echo "  (dry-run) $*"; else eval "$@"; fi
+}
 
-command -v jq >/dev/null 2>&1 || { echo "jq is required to read repos.json — install jq and re-run."; exit 1; }
-[ -f "$MANIFEST" ] || { echo "repos.json not found at $MANIFEST"; exit 1; }
+# ── prerequisites ─────────────────────────────────────────────────────────────
+command -v jq >/dev/null 2>&1 || { echo "jq is required — brew install jq" >&2; exit 1; }
+[ -f "$MANIFEST" ] || { echo "repos.json not found at $MANIFEST" >&2; exit 1; }
 
-# Resolve root: manifest.reposRoot > $REPOS_ROOT > parent of platform repo.
+# ── resolve repos root ────────────────────────────────────────────────────────
+# Priority: manifest.reposRoot > $REPOS_ROOT env var > parent of this repo
 ROOT="$(jq -r '.reposRoot // ""' "$MANIFEST")"
 [ -z "$ROOT" ] && ROOT="${REPOS_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
-ROOT="$(echo "$ROOT" | sed 's#\\#/#g')"
+# Normalise: no trailing slash
+ROOT="${ROOT%/}"
+
 echo -e "${BOLD}Scaffolding repos under:${NC} $ROOT"
 echo ""
 
+# ── iterate repos ─────────────────────────────────────────────────────────────
 COUNT="$(jq '.repos | length' "$MANIFEST")"
 for i in $(seq 0 $((COUNT - 1))); do
   name="$(jq -r ".repos[$i].name" "$MANIFEST")"
@@ -42,35 +54,37 @@ for i in $(seq 0 $((COUNT - 1))); do
   if [ -d "$target/.git" ]; then
     ok "already cloned: $target"
   else
-    run "git clone \"https://github.com/$remote.git\" \"$target\""
+    run "git clone 'https://github.com/$remote.git' '$target'"
     ok "cloned -> $target"
   fi
 
-  # 2. Install git hooks (idempotent; the repo ships its own hooks/install.sh)
+  # 2. Install git hooks (idempotent; ships its own hooks/install.sh)
   if [ -f "$target/hooks/install.sh" ]; then
-    run "(cd \"$target\" && bash hooks/install.sh)"
+    run "bash '$target/hooks/install.sh'"
     ok "git hooks installed"
   else
-    warn "no hooks/install.sh in $name — run 'bash setup.sh' inside it to scaffold the platform first"
+    warn "no hooks/install.sh in $name — run 'bash setup.sh $target' to install guard hooks"
   fi
 
   # 3. Scaffold .env files from their *.example siblings (never overwrite)
-  for envf in $(jq -r ".repos[$i].envFiles[]? // empty" "$MANIFEST"); do
+  while IFS= read -r envf; do
+    [ -n "$envf" ] || continue
     if [ -f "$target/$envf" ]; then
       ok ".env present: $envf"
     elif [ -f "$target/$envf.example" ]; then
-      run "cp \"$target/$envf.example\" \"$target/$envf\""
-      warn "scaffolded $envf from example — FILL IN SECRETS (see docs/NEW_PC.md § Secrets)"
+      run "cp '$target/$envf.example' '$target/$envf'"
+      warn "scaffolded $envf from example — FILL IN SECRETS"
     else
       warn "no $envf or $envf.example in $name — skip"
     fi
-  done
+  done < <(jq -r ".repos[$i].envFiles[]? // empty" "$MANIFEST")
 
-  # 4. Register graphify per-repo post-commit hook (free, AST-only) if graphify is installed
+  # 4. Register graphify per-repo post-commit hook (free, AST-only)
   if command -v graphify >/dev/null 2>&1 && [ -d "$target/.git" ]; then
-    run "(cd \"$target\" && graphify install-hook 2>/dev/null) || true"
-    ok "graphify post-commit hook registered (if supported)"
+    run "(cd '$target' && graphify install-hook 2>/dev/null) || true"
+    ok "graphify post-commit hook registered"
   fi
+
   echo ""
 done
 

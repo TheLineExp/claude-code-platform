@@ -1,6 +1,6 @@
 ---
 name: feature
-description: Unified, cross-repo backlog of LARGE, undefined feature projects across ALL FleetManager repos (reservations / FM V3 / vouchers / azure-ops) — net-new capabilities or product redesigns that need scoping/design before they can be built (typically multi-PR). Persistent + file-backed + cross-repo + cross-machine. Invoke with /feature to list; "/feature add ...", "/feature review", "/feature <filter>" to manage it. Use whenever the user says /feature, "feature requests", "the roadmap backlog", "add a feature idea", or wants to park/recall a large project. Auto-invoked during planning to check alignment. Distinct from /todo (small, well-defined quality-sweep fixes/tweaks/ops) and a repo's MASTER_PLAN.md (phase/planning tracking).
+description: Unified, cross-repo backlog of LARGE, undefined feature projects across ALL FleetManager repos (reservations / FM V3 / vouchers) — net-new capabilities or product redesigns that need scoping/design before they can be built (typically multi-PR). Persistent + file-backed + cross-repo + cross-machine. Invoke with /feature to list; "/feature add ...", "/feature review", "/feature <filter>" to manage it. Use whenever the user says /feature, "feature requests", "the roadmap backlog", "add a feature idea", or wants to park/recall a large project. Auto-invoked during planning to check alignment. Distinct from /todo (small, well-defined quality-sweep fixes/tweaks/ops) and a repo's MASTER_PLAN.md (phase/planning tracking).
 user_invocable: true
 ---
 

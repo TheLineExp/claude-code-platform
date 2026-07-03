@@ -1,111 +1,72 @@
 # Troubleshooting
 
-## Hooks Not Firing
+## `--diff` reports drift
 
-**Symptom:** Claude commits to a protected branch or skips checks.
-
-**Fix:**
 ```bash
-# Verify Claude hooks are registered
-cat .claude/settings.json | grep "PreToolUse" -A 30
-
-# Verify hook files are executable
-ls -la .claude/hooks/*.sh
-
-# Make executable if needed
-chmod +x .claude/hooks/*.sh
+./setup-machine.sh --diff
 ```
 
-## "BLOCKED: File is inside the main repo"
+- **DIFFERS / STRAY** and you didn't change the repo → `~/.claude` was hand-edited. Decide:
+  port the live change into `platform/global/` (if it's wanted) or discard it. Then
+  `./setup-machine.sh` to re-converge. Never leave drift standing — it silently forks the
+  system.
+- **MISSING** → run a plain `./setup-machine.sh` sync.
 
-**Symptom:** Can't edit files even though you should be working.
+## A skill or agent behaves like an old version
 
-**Cause:** You're editing in the main repo checkout instead of a worktree.
+`~/.claude` is stale. `./setup-machine.sh`, then restart Claude Code (settings and skills
+load at startup).
 
-**Fix:** Run `/letsbuild` to create a worktree, then open Claude Code at the worktree path.
+## backlog-gate doesn't prompt on `/todo` / `/feature` adds
 
-## "BLOCKED: Branch not registered in active-work.md"
+1. `ls ~/.claude/hooks/backlog-gate.js` — missing → re-sync.
+2. Check it's registered: `grep backlog-gate ~/.claude/settings.json` (PreToolUse → Skill).
+3. Restart Claude Code. The hook fails open by design, so a broken hook = silent adds —
+   fix it rather than living with it.
 
-**Symptom:** Can't commit on your feature branch.
+## `/todo` or `/feature` can't find the backlog
 
-**Fix:** Add your branch to `.claude/active-work.md`:
-```
-| w1 | feature/w1-your-branch | ../my-project-w1 | description | 2026-01-01 |
-```
+`cat ~/.claude/backlog-location` — it must contain this repo's `backlog/` path.
+`setup-machine.sh` writes it; re-run if missing or pointing at an old clone.
 
-Or run `/letsbuild` which does this automatically.
+## Commands fail with "no such file or directory" on repo paths
 
-## Git Hooks Not Installed
+The repos root `/Users/mikekunz/Documents/Volo Technologies/` contains a **space**. Quote
+every path, or use the space-free symlink `~/vt`.
 
-**Symptom:** Commits succeed on protected branches (pre-commit not running).
+## Guard hooks not firing in a fleet repo
 
-**Fix:**
+Guard hooks live in each fleet repo, not here.
+
 ```bash
-bash hooks/install.sh
-
-# Verify
-bash hooks/verify.sh
+ls -la .claude/hooks/*.sh          # present?
+chmod +x .claude/hooks/*.sh        # executable?
+grep -A5 PreToolUse .claude/settings.json   # wired?
 ```
 
-## Hook Drift (Installed != Template)
+## "BLOCKED: file is inside the main repo" / "branch not registered"
 
-**Symptom:** `bash hooks/verify.sh` reports drift.
+Working as intended — you're editing in the main checkout or on an unregistered branch.
+Run `/letsbuild`; it creates the worktree, branch, and registration in one step.
 
-**Fix:**
-```bash
-bash hooks/install.sh  # Re-copies from templates
-```
+## `/shipit` refuses to call a PR "ready"
 
-## Session Tracker Warnings
+The PR-Ready gate requires **checks green + zero unresolved review threads** on the current
+HEAD. Fix or reply-and-resolve every thread, wait for checks, retry. The prod-promotion
+gate additionally requires staging to be converged before a prod PR.
 
-**Symptom:** Claude says "session is getting large" or "open a new window."
+## Statusline missing
 
-**This is working as intended.** The session-tracker counts tool calls and warns at thresholds. When you see these warnings:
-1. Commit and push your current work
-2. Open a new Claude Code window
-3. The counter resets with each new session
+`ls -la ~/.claude/statusline-command.sh` (must exist and be executable; re-sync if not),
+and confirm `statusLine` in `~/.claude/settings.json` points at it.
 
-## One-Try Rule Triggering
+## Junk "[graphify auto-consult]" blocks in prompts
 
-**Symptom:** Claude says "ONE-TRY RULE: This error was already encountered."
+Shouldn't happen anymore — `graphify-autoquery.js` is retired. If you see it,
+`rm ~/.claude/hooks/graphify-autoquery.js`, remove any reference to it from
+`~/.claude/settings.json`, and check `--diff`: a stale sync or hand edit reinstalled it.
 
-**This is working as intended.** The error-handler prevents Claude from spinning on the same error. When you see this:
-1. Read Claude's explanation of what failed
-2. Fix the issue manually (e.g., start Docker, fix env var)
-3. Ask Claude to retry
+## When in doubt
 
-To reset the one-try tracker (if you've fixed the underlying issue):
-```bash
-rm /tmp/claude-errors-*.log
-```
-
-## Windows Path Issues
-
-**Symptom:** Hooks fail with path comparison errors on Windows.
-
-**Fix:** The `enforce-worktree.sh` hook handles Windows path normalization (`C:\` → `/c/`). If you encounter issues:
-1. Ensure you're using Git Bash, not PowerShell
-2. Check that `git rev-parse --show-toplevel` returns a valid path
-3. Verify the normalize function in enforce-worktree.sh handles your path format
-
-## Permission Prompts Still Appearing
-
-**Symptom:** Claude asks for approval on operations that should be auto-approved.
-
-**Check:**
-1. Verify `.claude/settings.json` has `permissions.allow` rules
-2. Ensure the command pattern matches — `Bash(npm *)` requires a space after `npm`
-3. Check for deny rules that might override allow rules
-4. Verify `.claude/settings.local.json` exists if you need personal overrides
-
-## platform.config.json Not Found
-
-**Symptom:** Hooks fall back to defaults, branch names don't match.
-
-**Fix:** Run `bash setup.sh` to regenerate, or create manually:
-```json
-{
-  "project": { "name": "my-project", "repoDir": "my-project" },
-  "branches": { "production": "main", "staging": "staging", "protected": ["main", "staging"] }
-}
-```
+`./setup-machine.sh` (it backs up before overwriting), restart Claude Code, re-check
+`--diff`. The repo is the truth; `~/.claude` is disposable.

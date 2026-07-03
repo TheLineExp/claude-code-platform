@@ -13,7 +13,7 @@
     {
       "name": "fm-v3",
       "remote": "TheLineExp/Fleetmanager_V3",
-      "dir": "fleetmanager/Fleetmanager_V3",
+      "dir": "Fleetmanager_V3",
       "graphifyAs": "fm-v3",
       "envFiles": [".env"]
     },

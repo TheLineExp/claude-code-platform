@@ -1,57 +1,58 @@
 # PR Review Convention
 
-The review model is deliberately **local-first** to keep GitHub Actions minutes low while
-still getting two independent reviewers (Claude + Codex) with inline comments on the diff.
+Local-first: reviews run on this machine at $0 GitHub-Actions cost, with Codex as an
+external safety-net. The agent gates exist because two weeks of review data
+([AUDIT-2026-07-02.md](AUDIT-2026-07-02.md)) showed most P1/P2s live in code the diff did
+NOT touch (~65% missed-sibling-surface) or in TOCTOU/race interleavings (~40% of P1s).
 
-## The model
+## The reviewers
 
-| Reviewer | Where it runs | Cost | Role |
-|----------|---------------|------|------|
-| **Claude** | **Locally**, via `/code-review --comment` from your worktree | $0 Actions | **Primary** inline reviewer |
-| **Codex** | GitHub Actions (`codex-auto-request.yml`) | Actions minutes | Automated safety-net |
-| `@claude` | GitHub Actions (`claude-mention.yml`) | Actions minutes | Human-triggered follow-ups only |
+| Reviewer | Where it runs | Role |
+|----------|---------------|------|
+| `/code-review` (built-in) | Locally, from the worktree | Primary diff review; `--comment` posts inline on the PR |
+| `parity-sweep` agent | Locally, run by `/shipit` | Blast-radius sweep — sibling call sites, twin routes, config surfaces the diff didn't change |
+| `money-concurrency-reviewer` agent | Locally, run by `/shipit` | Adversarial TOCTOU/race review on money paths (final HEAD, and again after every fix round) |
+| `traceability-reviewer` agent | Locally, on demand / via `/traceability-review` | End-to-end call-chain verification for multi-layer changes |
+| Codex | GitHub Actions, gated to `ready_for_review` (concurrency-cancelled) | External safety-net |
 
-Claude's auto-review **does not** run as a per-push Action (that was the #1 minute-burn).
-You run it on your machine, on demand, and it posts inline alongside Codex's comments.
+`gstack-review` is retired — the review pathway is `/code-review` + the agents above,
+orchestrated by `/shipit`.
 
-## When reviews fire (timing)
+## Sequence per ship
 
-- **Draft PR:** nothing fires. Iterate freely.
-- **Mark ready-for-review:** Codex fires **once** (gated to the `ready_for_review` event,
-  with `concurrency: cancel-in-progress` so rapid pushes don't stack runs).
-- **Before requesting merge:** run `/code-review --comment` locally to add Claude's pass.
-- The merge gate is **"current HEAD has zero unresolved findings from the active primary
-  reviewer"** — not elapsed wall-clock time.
+1. **Before push:** `/code-review` on `git diff origin/staging...HEAD`; fix every finding.
+2. **Before push, for payment/state/shared-helper/auth/concurrency diffs:** run
+   `parity-sweep` and `money-concurrency-reviewer`; fix to PASS. Re-run both after every
+   review-fix round — fixes introduce new bugs.
+3. **Draft PR:** nothing fires; iterate freely.
+4. **Mark ready-for-review:** Codex fires once. But "ready" itself is gated — the
+   **PR-Ready gate** in `/shipit` requires checks green + **zero unresolved review
+   threads** on the current HEAD before any "ready" claim.
+5. **Prod promotion:** staging must be converged first (prod-promotion gate), then the
+   staging → prod PR.
 
-## Primary / fallback swap (one command)
+## Responding to comments
 
-Either reviewer can hit rate/usage limits (Codex hits rate limits often). Swap with a repo
-variable — no file edits, no redeploy:
+1. **One pass per HEAD.** Triage ALL inline comments (Codex + Claude) in a single pass.
+2. **Fix or reply-and-resolve.** Every finding is fixed (reference the commit) or replied
+   to with rationale, then resolved. No silent dismissals.
+3. **Dedup overlaps** — address once, note "covers both".
+4. **Re-review after the fix pass** (including re-running the two agents for gated change
+   types), then merge once clean on the new HEAD.
+
+## Primary/fallback swap
+
+Either reviewer can hit limits. Swap with a repo variable — no file edits:
 
 ```bash
 gh variable set REVIEW_PRIMARY --body claude   # Codex rate-limited → lean on local Claude
-gh variable set REVIEW_PRIMARY --body codex    # Opus weekly quota hit → re-enable Codex Actions
-gh variable set REVIEW_PRIMARY --body both      # belt-and-suspenders (burns more minutes)
+gh variable set REVIEW_PRIMARY --body codex    # Opus quota hit → re-enable Codex Actions
 ```
 
 The Actions workflows read `vars.REVIEW_PRIMARY` in their top-level `if:` and self-gate.
-Default: `codex` (Codex Actions on) + local Claude always available on demand.
-
-## Responding to comments (the consistency rule)
-
-The thing that was inconsistent before: who replies, and when. The rule:
-
-1. **One pass per HEAD.** The PR author (you, or the dev agent) triages **all** inline
-   comments — Codex's and Claude's — in a single pass, not per-comment drip.
-2. **Fix or reply-and-resolve.** Every finding is either fixed in code (reference the fix
-   commit in the reply) **or** replied to with explicit rationale, then resolved. No silent
-   dismissals.
-3. **Dedup overlaps.** When Codex and Claude flag the same line, address it once and note
-   "covers both" — don't write two replies.
-4. **Re-review after the fix pass**, then merge once the active primary reviewer is clean on
-   the new HEAD.
 
 ## Never
 
-- Never merge with a pending or unaddressed review on the **current** HEAD.
-- Agents never merge any PR — only the human merges (enforced by hooks).
+- Never claim a PR is "ready" with failing checks or unresolved threads (PR-Ready gate).
+- Never merge with a pending or unaddressed review on the current HEAD.
+- Agents never merge any PR — only Mike merges (enforced by hooks).

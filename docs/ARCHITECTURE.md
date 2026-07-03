@@ -1,113 +1,92 @@
 # Architecture
 
-## System Overview
+How the dev system is layered, why it's shaped this way, and where each piece lives.
+Background: [AUDIT-2026-07-02.md](AUDIT-2026-07-02.md) — two weeks of failure data showed the
+old design (per-repo skill copies, gstack, graphify prompt injection) caused drift and junk
+context; the fix was one canonical layer with a single sync path.
+
+## The two layers
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    Claude Code Session                    │
-│                                                          │
-│  User Message → Claude → Tool Call → Hook Check → Execute│
-│                                                          │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐              │
-│  │ PreToolUse│  │PostToolUse│  │PreCompact │              │
-│  │  9 hooks  │  │ tracker  │  │ notifier  │              │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘              │
-│       │              │              │                     │
-│  ┌────▼─────┐  ┌────▼─────┐  ┌────▼─────┐              │
-│  │ Safety   │  │ Session  │  │ Context  │              │
-│  │ + Config │  │ Counter  │  │ Rules    │              │
-│  └────┬─────┘  └──────────┘  └──────────┘              │
-│       │                                                  │
-│  ┌────▼──────────────────┐                              │
-│  │ PostToolUseFailure    │                              │
-│  │ Error Handler         │                              │
-│  │ (one-try fingerprint) │                              │
-│  └───────────────────────┘                              │
-└─────────────────────────────────────────────────────────┘
+claude-code-platform/platform/global/     CANONICAL — edited in git, reviewed, versioned
+        │
+        │  ./setup-machine.sh   (the ONLY writer of ~/.claude)
+        ▼
+~/.claude/                                GENERATED — never hand-edited
+        skills/  agents/  hooks/backlog-gate.js  statusline-command.sh
+        CLAUDE.md  settings.json          (rendered from templates)
+
+fleet repos (.claude/ in each)            PER-REPO — guard hooks ONLY
+        hooks/block-*.sh, enforce-worktree.sh, ...  + settings wiring
 ```
 
-## Hook Execution Flow
+**Layer 1 — user-global (`platform/global/` → `~/.claude`).** All skills, agents, the
+backlog-gate hook, statusline, and the two templates. Machine-specific paths are substituted
+at sync time, so the committed templates stay portable.
 
-### PreToolUse (before every tool call)
+**Layer 2 — per-repo (fleet repos).** Only guard hook scripts (`block-protected-branch`,
+`block-destructive-git`, `enforce-worktree`, etc.) and the `settings.json` wiring that binds
+them. **No per-repo skills or agents.** They previously existed and drifted into three
+divergent copies — the audit's core finding — so they were deleted; behavior now comes from
+the global layer only.
 
-**On Bash commands** — all 9 hooks run in order:
-1. `block-protected-branch.sh` — is this a `git commit` on a protected branch?
-2. `block-no-verify.sh` — does the command contain `--no-verify`?
-3. `block-destructive-git.sh` — force push, hard reset, checkout .?
-4. `block-gh-merge.sh` — is this `gh pr merge`?
-5. `block-rebase-interactive.sh` — interactive rebase or add?
-6. `block-file-redirect.sh` — file write via redirect in main repo?
-7. `check-work-registration.sh` — is this branch registered?
-8. `check-branch-prefix.sh` — does branch prefix match window ID?
-9. `enforce-worktree.sh` — is the file in the main repo?
+## Canonical layer contents
 
-**On Edit/Write** — only `enforce-worktree.sh` runs.
+### Skills (9) — `platform/global/skills/`
 
-**Fast-path optimization**: `_parse-input.sh` sets `NEEDS_GIT_CHECK` flag. Non-git commands skip hooks 1-5, 7-8.
+doctrine, feature, graphify, letsbuild, pm, route, shipit, todo, traceability-review.
+Full descriptions: [SKILLS_REFERENCE.md](SKILLS_REFERENCE.md).
 
-### PostToolUse (after every tool call)
+### Agents (3) — `platform/global/agents/`
 
-`session-tracker.sh` increments a counter in `/tmp/` and injects guidance at thresholds.
+| Agent | Role |
+|-------|------|
+| `parity-sweep` | Blast-radius sweeper: finds the sibling call site / twin route / parallel serializer / config surface the diff did NOT change but made inconsistent |
+| `money-concurrency-reviewer` | Adversarial TOCTOU/race reviewer for money paths (payments, refunds, vouchers, webhooks, locks, state machines) |
+| `traceability-reviewer` | End-to-end call-chain checker: UI → API client → route → service → DB, verifying signatures and shapes at every boundary |
 
-### PostToolUseFailure (after failed tool calls)
+### Hooks and support files
 
-`error-handler.sh` fingerprints the error. First occurrence → provides fix guidance. Repeated → escalates to user (one-try rule).
+- `backlog-gate.js` — PreToolUse(Skill) hook; confirm-prompts every `/todo` and `/feature`
+  add so a model-initiated backlog entry can't pass silently (Doctrine Rule 4). Fails open.
+- `statusline-command.sh` — statusline (`dir (branch) model ctx:NN%`).
+- `claude-CLAUDE.template.md` / `claude-settings.template.json` — rendered to
+  `~/.claude/CLAUDE.md` and `~/.claude/settings.json` with real paths substituted.
+- `graphify-autoquery.js` — **retired from deployment**. Kept in the repo for reference; its
+  entity extraction injected junk graph nodes into every prompt. `/graphify` remains a
+  normal on-demand skill.
 
-### PreCompact (before context compression)
+## Deployment model
 
-`compact-notifier.sh` injects critical rules that must survive compaction.
+`setup-machine.sh` is the single writer of `~/.claude`:
 
-## Configuration Flow
+- **Default mode** — syncs `platform/global/` into `~/.claude`, backing up anything it
+  overwrites (`*.bak-N`).
+- **`--diff` mode** — read-only drift report (IDENTICAL / DIFFERS / MISSING / STRAY); exits
+  1 on drift. Run before committing.
 
-```
-platform.config.json
-       │
-       ├──→ _config.sh (loaded by hooks)
-       │      exports: PROTECTED_BRANCHES, FEATURE_PREFIX, etc.
-       │
-       ├──→ setup.sh (generates settings.json, CLAUDE.md)
-       │
-       └──→ Skills (read at runtime for repo name, branches, URLs)
-```
+Change flow: edit `platform/global/` → `./setup-machine.sh` → commit. Never the other
+direction. If `--diff` shows drift you didn't author here, someone hand-edited `~/.claude`;
+port it into `platform/global/` if wanted, then re-sync.
 
-## Worktree Isolation
+## Workflow pathways — exactly one per task
 
-```
-my-project/          # Main repo — setup only, never code here
-  ├── .claude/       #   Editable (hooks, skills, settings)
-  └── src/           #   BLOCKED by enforce-worktree.sh
+| Phase | Pathway | Gates |
+|-------|---------|-------|
+| Start | `/letsbuild` | Worktree + branch + registration; **doctrine plan-gate** at Phase 0 |
+| Ship | `/shipit` | Staging PR → prod PR. `parity-sweep` + `money-concurrency-reviewer` agent passes; doctrine ship backstop; **PR-Ready gate** — checks green + 0 unresolved review threads before any "ready" claim; **prod-promotion gate** — staging must be converged first; session rotation after ship |
+| Review | built-in `/code-review` + the 3 agents | — |
+| Backlog | `/todo` (small) / `/feature` (large) | `backlog-gate` hook confirms every add |
 
-my-project-w1/       # Agent 1 worktree — full access
-  ├── .claude/       #   Copied from main repo
-  └── src/           #   All edits happen here
+Retired pathways: `gstack-ship`, `gstack-review`.
 
-my-project-w2/       # Agent 2 worktree — independent
-```
+## Environment facts
 
-## Permission Layers
-
-```
-Deny rules (hard floor — cannot be overridden)
-  ↑
-settings.json allow rules (project-wide)
-  ↑
-settings.local.json allow rules (personal overrides)
-  ↑
-Hook checks (run even on allowed commands)
-```
-
-## Addon Pattern
-
-```
-Platform skill (generic)          Project addon (specific)
-┌─────────────────────────┐      ┌──────────────────────────┐
-│ /code-review            │      │ code-review-addons.md    │
-│                         │ reads│                          │
-│ Generic checklist:      │──────│ Project-specific checks: │
-│ - No debug statements   │      │ - PII encryption         │
-│ - Error handling        │      │ - HMAC hashes            │
-│ - Single responsibility │      │ - Audit logging          │
-└─────────────────────────┘      └──────────────────────────┘
-```
-
-Platform updates merge cleanly because addon files are separate.
+- Single machine: Mike's Mac (darwin). No Windows, no Linux, no other users.
+- Repos root: `/Users/mikekunz/Documents/Volo Technologies/` — the path contains a
+  **space**; always quote it. Space-free symlink: `~/vt`.
+- Repos: `fleetmanager-reservations` (prod `master`), `Fleetmanager_V3` (prod `main`),
+  `fleetmanager-vouchers` (prod `master`), `claude-code-platform` (this repo).
+  There is **no azure-ops repo**.
+- Cross-repo backlog store: `backlog/` in this repo, located at runtime via
+  `~/.claude/backlog-location` (written by `setup-machine.sh`).

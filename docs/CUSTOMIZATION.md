@@ -1,147 +1,83 @@
-# Customization Guide
+# Changing the System
 
-## The Addon Pattern
+Everything flows one way: **edit `platform/global/` here → `./setup-machine.sh` → commit.**
+Never hand-edit `~/.claude` — the next sync overwrites it and the change never reaches git.
+Run `./setup-machine.sh --diff` before committing to confirm repo and `~/.claude` are
+identical.
 
-Platform skills ship with generic checklists. Your project-specific requirements go in **addon files** — separate markdown files that skills read automatically.
+## Edit an existing skill
 
-This means:
-- Platform updates merge cleanly (you never modify platform skill files)
-- Your project checks are additive, not replacements
-- Multiple teams can share the platform with different addons
+1. Edit `platform/global/skills/<name>/SKILL.md` (and any support files in that dir).
+2. `./setup-machine.sh` — syncs it to `~/.claude/skills/<name>/`.
+3. `./setup-machine.sh --diff` to verify, then commit.
 
-## Creating Addon Files
+## Add a new skill
 
-### Code Review Addons
+1. Create `platform/global/skills/your-skill/SKILL.md`:
 
-Create `.claude/code-review-addons.md`:
+   ```markdown
+   ---
+   name: your-skill
+   description: What it does and when to use it. Claude matches on this — make triggers explicit.
+   user_invocable: true
+   ---
 
-```markdown
-## Security (Critical)
-- [ ] All customer PII encrypted with encryptionService
-- [ ] Searchable fields have HMAC hashes
-- [ ] License data deleted after rental period
+   # Your Skill
 
-## Framework Standards
-- [ ] Business logic in services/ (not routes/)
-- [ ] Use asyncHandler wrapper on all Express routes
-- [ ] Prisma includes for related data (no N+1)
+   ## Workflow
+   1. ...
+   ```
 
-## Domain Rules
-- [ ] Bikes assigned by specific bikeId (never generic)
-- [ ] All dates in UTC ISO format
-```
+2. Sync + verify + commit as above. Available as `/your-skill` after restart.
 
-### Security Review Addons
+If the new skill is a workflow pathway (start/ship/review/backlog), keep "exactly one
+pathway per task": update README's pathway table and make sure it doesn't overlap an
+existing one.
 
-Create `.claude/security-review-addons.md`:
+## Add or edit an agent
 
-```markdown
-## Encryption Requirements
-- [ ] AES-256-GCM for PII (name, email, phone)
-- [ ] Separate key for license data
-- [ ] HMAC-SHA256 for searchable hashes
-
-## Compliance
-- [ ] GDPR: Right to deletion implemented
-- [ ] PCI-DSS: No card numbers stored
-
-## Multi-Tenant Isolation
-- [ ] All queries filtered by tenantId
-- [ ] JWT tokens carry tenant array
-- [ ] No cross-tenant data leakage possible
-```
-
-### Other Addon Files
-
-| File | Purpose |
-|------|---------|
-| `.claude/api-review-addons.md` | ORM patterns, multi-tenant scoping, middleware conventions |
-| `.claude/pre-deploy-addons.md` | Infrastructure checks, cloud provider specifics, CI/CD validation |
-| `.claude/perf-test-addons.md` | Benchmark thresholds, specific endpoints, rate limiter config |
-| `.claude/deploy-verifier-addons.md` | Health check details, cross-service access, schema validation |
-
-## Adding Custom Skills
-
-Create a new directory in `.claude/skills/your-skill/` with a `SKILL.md` file:
-
-```markdown
----
-name: your-skill
-description: What it does and when to use it.
-user_invocable: true
----
-
-# Your Skill Name
-
-## When to Use
-- ...
-
-## Workflow
-1. ...
-2. ...
-```
-
-The skill is automatically available as `/your-skill` in Claude Code.
-
-## Adding Custom Agents
-
-Create a new file in `.claude/agents/your-agent.md`:
+Agents live in `platform/global/agents/<name>.md`:
 
 ```markdown
 ---
 name: your-agent
-description: What it does.
-model: sonnet
+description: What it does and when Claude should invoke it proactively.
+tools: Read, Grep, Glob, Bash
+model: inherit
 ---
 
-# Your Agent
-
-Instructions for the agent...
+Instructions...
 ```
 
-## Modifying Hooks
+Same flow: edit → sync → `--diff` → commit. Keep review agents read-only (`Read, Grep,
+Glob, Bash`) — they report, they don't fix.
 
-### Adding a New Hook
+## Add or edit a global hook
 
-1. Create the script in `.claude/hooks/your-hook.sh`
-2. Source the shared utilities:
-   ```bash
-   SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-   source "$SCRIPT_DIR/_parse-input.sh"
-   ```
-3. Register it in `.claude/settings.json` under the appropriate event
+1. Put the script in `platform/global/` (see `backlog-gate.js` for the pattern — it's a
+   PreToolUse(Skill) hook that fails open).
+2. Register it in `platform/global/claude-settings.template.json` under the right event.
+   Use `{{HOME}}` / `{{REPOS_ROOT}}` placeholders, never literal machine paths.
+3. Ensure `setup-machine.sh` copies it (it syncs the known file list — if you add a new
+   top-level file, add the copy step there too; setup-machine.sh is owned outside docs/,
+   so coordinate that edit).
+4. Sync, restart Claude Code, verify the hook fires, commit.
 
-### Changing Protected Branches
+## Change settings / permissions
 
-Edit `platform.config.json`:
-```json
-"branches": {
-  "protected": ["main", "staging", "develop"]
-}
-```
+Edit `platform/global/claude-settings.template.json`, not `~/.claude/settings.json`.
+Placeholders are substituted at sync time.
 
-Hooks read this at runtime — no need to modify hook scripts.
+## Per-repo guard hooks (fleet repos)
 
-## Modifying Permissions
+Guard hooks (`block-*.sh`, `enforce-worktree.sh`, ...) are versioned inside each fleet repo
+under `.claude/hooks/` with their settings wiring. Edit them in that repo, not here. Do
+NOT add per-repo skills or agents — that pattern drifted into three divergent copies and
+was deliberately removed (see [AUDIT-2026-07-02.md](AUDIT-2026-07-02.md)).
 
-### Project-Level (Shared)
+## Retiring something
 
-Edit `.claude/settings.json` `permissions.allow` and `permissions.deny` arrays.
-
-### Personal Overrides
-
-Edit `.claude/settings.local.json` (gitignored):
-```json
-{
-  "permissions": {
-    "allow": ["Bash(git push origin *)"]
-  }
-}
-```
-
-## Session Conservation Tuning
-
-Edit the thresholds in `.claude/hooks/session-tracker.sh`:
-- Line with `50)` — first warning
-- Line with `80)` — strong recommendation
-- Line with `120)` — critical alert
+Deleting from `platform/global/` does not delete from `~/.claude` automatically — after
+removing a skill/agent, check `--diff` for STRAY entries and remove the live copy, or let
+the next full sync handle it if it does. Precedent: `graphify-autoquery.js` stays in the
+repo but is excluded from deployment; `gstack-ship`/`gstack-review` were deleted outright.
