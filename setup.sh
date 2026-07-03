@@ -100,45 +100,11 @@ say "${BOLD}Recommended .claude/settings.json hooks block for ${REPO_NAME}:${NC}
 say "(Copy this into ${TARGET}/.claude/settings.json — do NOT force-overwrite the whole file.)"
 say ""
 
-cat << 'EOSETTINGS'
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          { "type": "command", "command": "bash .claude/hooks/block-protected-branch.sh" },
-          { "type": "command", "command": "bash .claude/hooks/block-no-verify.sh" },
-          { "type": "command", "command": "bash .claude/hooks/block-destructive-git.sh" },
-          { "type": "command", "command": "bash .claude/hooks/block-gh-merge.sh" },
-          { "type": "command", "command": "bash .claude/hooks/block-rebase-interactive.sh" },
-          { "type": "command", "command": "bash .claude/hooks/block-file-redirect.sh" },
-          { "type": "command", "command": "bash .claude/hooks/check-work-registration.sh" },
-          { "type": "command", "command": "bash .claude/hooks/check-branch-prefix.sh" },
-          { "type": "command", "command": "bash .claude/hooks/enforce-worktree.sh" }
-        ]
-      },
-      {
-        "matcher": "Edit",
-        "hooks": [
-          { "type": "command", "command": "bash .claude/hooks/enforce-worktree.sh" }
-        ]
-      },
-      {
-        "matcher": "Write",
-        "hooks": [
-          { "type": "command", "command": "bash .claude/hooks/enforce-worktree.sh" }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "",
-        "hooks": [
-          { "type": "command", "command": "bash .claude/hooks/session-tracker.sh" }
-        ]
-      }
-    ]
-  }
-EOSETTINGS
+# Canonical fleet hooks block — single source is platform/fleet-settings.json.
+# enforce-worktree covers Edit|Write|MultiEdit|NotebookEdit (MultiEdit/NotebookEdit
+# would otherwise bypass it); commands are anchored to $CLAUDE_PROJECT_DIR so they
+# resolve even when the session cwd is a subdir (frontend/, backend/).
+sed -n '/"hooks"/,$p' "$SCRIPT_DIR/platform/fleet-settings.json" 2>/dev/null \
+  | sed '$ { /^}$/d; }'
 
 say ""
