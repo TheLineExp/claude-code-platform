@@ -8,6 +8,11 @@ generated FROM this repo — see docs/AUDIT-2026-07-02.md for why.
 - `platform/global/` — canonical layer synced to `~/.claude`:
   - `skills/` — 9 skills (doctrine, feature, graphify, letsbuild, pm, route, shipit, todo, traceability-review)
   - `agents/` — parity-sweep, money-concurrency-reviewer, traceability-reviewer
+  - `hooks/` — the git-safety guard hooks (block-*, check-*, enforce-worktree, deps
+    `_parse-input.sh`/`_config.sh`). GLOBAL: they fire for every session via
+    `~/.claude/settings.json`, not per-repo. Universal guards (no-verify, destructive-git,
+    gh-merge, rebase) run everywhere; worktree/deploy-branch hooks self-gate on a registered
+    `.claude/active-work.md` (via `_fleet_active`) so they only enforce in fleet repos.
   - `backlog-gate.js` (PreToolUse hook), `statusline-command.sh`
   - `claude-CLAUDE.template.md` → `~/.claude/CLAUDE.md`; `claude-settings.template.json` → `~/.claude/settings.json`
   - `graphify-autoquery.js` — retired from deployment; kept in repo only
