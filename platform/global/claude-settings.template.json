@@ -120,6 +120,25 @@
             "command": "node \"/Users/mikekunz/.claude/hooks/backlog-gate.js\""
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "bash ~/.claude/hooks/block-protected-branch.sh" },
+          { "type": "command", "command": "bash ~/.claude/hooks/block-no-verify.sh" },
+          { "type": "command", "command": "bash ~/.claude/hooks/block-destructive-git.sh" },
+          { "type": "command", "command": "bash ~/.claude/hooks/block-gh-merge.sh" },
+          { "type": "command", "command": "bash ~/.claude/hooks/block-rebase-interactive.sh" },
+          { "type": "command", "command": "bash ~/.claude/hooks/block-file-redirect.sh" },
+          { "type": "command", "command": "bash ~/.claude/hooks/check-work-registration.sh" },
+          { "type": "command", "command": "bash ~/.claude/hooks/check-branch-prefix.sh" }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          { "type": "command", "command": "bash ~/.claude/hooks/enforce-worktree.sh" }
+        ]
       }
     ]
   },

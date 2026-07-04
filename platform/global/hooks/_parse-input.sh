@@ -46,3 +46,24 @@ if [ -n "$COMMAND" ]; then
     NEEDS_FILE_CHECK=true
   fi
 fi
+
+# Is the letsbuild multi-agent workflow ACTIVE in this repo? The worktree-discipline
+# hooks (enforce-worktree, check-work-registration, check-branch-prefix, block-file-redirect)
+# are deployed GLOBALLY but must only enforce where the workflow is set up — signalled by a
+# registered row in .claude/active-work.md (a `| wX | … |` / `| xN | … |` / `| s | … |`
+# line). Repos without registered work (the platform repo, one-off checkouts) → no-op.
+# Only the worktree hooks call this; universal git guards ignore it and run everywhere.
+_fleet_active() {
+  local gcd main tl d
+  gcd=$(git rev-parse --git-common-dir 2>/dev/null) || return 1
+  case "$gcd" in
+    /*) main=$(dirname "$gcd") ;;
+    *)  main=$(cd "$(dirname "$gcd")" 2>/dev/null && pwd) ;;
+  esac
+  tl=$(git rev-parse --show-toplevel 2>/dev/null)
+  for d in "$tl" "$main"; do
+    [ -n "$d" ] && [ -f "$d/.claude/active-work.md" ] && \
+      grep -qE '^\|[[:space:]]*(w|x|s)[0-9]*[[:space:]]*\|' "$d/.claude/active-work.md" && return 0
+  done
+  return 1
+}

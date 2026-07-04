@@ -10,6 +10,9 @@ source "$SCRIPT_DIR/_parse-input.sh"
 $NEEDS_GIT_CHECK || exit 0
 echo "$COMMAND" | grep -qE '^git commit\b' || exit 0
 
+# Global deployment: only enforce where the letsbuild workflow is active.
+_fleet_active || exit 0
+
 source "$SCRIPT_DIR/_config.sh"
 
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")

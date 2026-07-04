@@ -32,6 +32,14 @@ if [ -z "$MAIN_REPO" ]; then
   exit 0
 fi
 
+# Deployed globally — but worktree discipline only applies where the letsbuild workflow
+# is set up, signalled by a registered row in the main repo's active-work.md. Repos with
+# no registered work (the platform repo, one-off checkouts) are edited directly → no-op.
+if [ ! -f "$MAIN_REPO/.claude/active-work.md" ] || \
+   ! grep -qE '^\|[[:space:]]*(w|x|s)[0-9]*[[:space:]]*\|' "$MAIN_REPO/.claude/active-work.md" 2>/dev/null; then
+  exit 0
+fi
+
 # Normalize paths for comparison (Windows paths vs MSYS paths)
 normalize() {
   local p="$1"

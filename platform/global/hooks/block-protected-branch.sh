@@ -8,6 +8,12 @@ source "$SCRIPT_DIR/_parse-input.sh"
 $NEEDS_GIT_CHECK || exit 0
 echo "$COMMAND" | grep -qE '^git (commit|push|merge)\b' || exit 0
 
+# Deployed globally, but "protected branches" means the fleet's PR-based DEPLOY branches
+# (staging/master/main). A personal trunk-based repo legitimately commits to main, so this
+# only enforces where the letsbuild workflow is active (registered active-work.md). The
+# truly universal git guards (no-verify, destructive-git, gh-merge, rebase) run everywhere.
+_fleet_active || exit 0
+
 source "$SCRIPT_DIR/_config.sh"
 
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")

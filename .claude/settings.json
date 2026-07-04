@@ -72,20 +72,5 @@
       "Bash(git clean *)",
       "Bash(gh pr merge *)"
     ]
-  },
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          { "type": "command", "command": "bash .claude/hooks/block-protected-branch.sh" },
-          { "type": "command", "command": "bash .claude/hooks/block-no-verify.sh" },
-          { "type": "command", "command": "bash .claude/hooks/block-destructive-git.sh" },
-          { "type": "command", "command": "bash .claude/hooks/block-gh-merge.sh" },
-          { "type": "command", "command": "bash .claude/hooks/block-rebase-interactive.sh" },
-          { "type": "command", "command": "bash .claude/hooks/block-file-redirect.sh" }
-        ]
-      }
-    ]
   }
 }

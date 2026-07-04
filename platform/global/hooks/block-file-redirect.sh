@@ -9,6 +9,10 @@ source "$SCRIPT_DIR/_parse-input.sh"
 # Fast path: no file redirect operators detected
 $NEEDS_FILE_CHECK || exit 0
 
+# Global deployment: this closes the enforce-worktree bypass, so it only applies where
+# the letsbuild workflow is active. Elsewhere, Bash redirects to repo files are fine.
+_fleet_active || exit 0
+
 # Only enforce in the main repo (not in worktrees)
 GIT_DIR=$(git rev-parse --git-dir 2>/dev/null)
 if echo "$GIT_DIR" | grep -q "/worktrees/"; then

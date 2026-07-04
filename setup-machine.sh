@@ -201,6 +201,23 @@ if [ "$DIFF_MODE" -eq 1 ]; then
     done < <(find "$CLAUDE_HOME/agents" -maxdepth 1 -type f -name "*.md" -print0)
   fi
 
+  # Guard hooks mirror (*.sh)
+  say "  ${BLUE}Guard hooks:${NC}"
+  for canonical_hook in "$GLOBAL_SRC/hooks"/*.sh; do
+    [ -f "$canonical_hook" ] || continue
+    name="$(basename "$canonical_hook")"
+    diff_file "$canonical_hook" "$CLAUDE_HOME/hooks/$name" "hooks/$name"
+  done
+  if [ -d "$CLAUDE_HOME/hooks" ]; then
+    while IFS= read -r -d '' live_hook; do
+      name="$(basename "$live_hook")"
+      if [ ! -f "$GLOBAL_SRC/hooks/$name" ]; then
+        stray "STRAY    hooks/$name"
+        DRIFT=1
+      fi
+    done < <(find "$CLAUDE_HOME/hooks" -maxdepth 1 -type f -name "*.sh" -print0)
+  fi
+
   say ""
   if [ "$DRIFT" -eq 0 ]; then
     say "${GREEN}${BOLD}No drift — live matches canonical.${NC}"
@@ -342,6 +359,33 @@ if [ -d "$CLAUDE_HOME/agents" ]; then
       REMOVED_COUNT=$((REMOVED_COUNT + 1))
     fi
   done < <(find "$CLAUDE_HOME/agents" -maxdepth 1 -type f -name "*.md" -print0)
+fi
+
+say ""
+say "${BLUE}=== Guard hooks (mirror: *.sh) ===${NC}"
+
+# Mirror the git-safety guard hooks GLOBALLY. They now fire for every session via
+# ~/.claude/settings.json instead of being copied into each repo (kills per-repo drift).
+# Scoped to *.sh so backlog-gate.js (synced separately) is untouched.
+for canonical_hook in "$GLOBAL_SRC/hooks"/*.sh; do
+  [ -f "$canonical_hook" ] || continue
+  name="$(basename "$canonical_hook")"
+  live_hook="$CLAUDE_HOME/hooks/$name"
+  sync_file "$canonical_hook" "$live_hook" "hooks/$name"
+  chmod +x "$live_hook" 2>/dev/null || true
+done
+
+# Remove stray *.sh hooks (in live but not in canonical)
+if [ -d "$CLAUDE_HOME/hooks" ]; then
+  while IFS= read -r -d '' live_hook; do
+    name="$(basename "$live_hook")"
+    if [ ! -f "$GLOBAL_SRC/hooks/$name" ]; then
+      backup_path "$live_hook" "hooks/$name"
+      rm -f "$live_hook"
+      removed "hooks/$name  (stray — not in canonical)"
+      REMOVED_COUNT=$((REMOVED_COUNT + 1))
+    fi
+  done < <(find "$CLAUDE_HOME/hooks" -maxdepth 1 -type f -name "*.sh" -print0)
 fi
 
 say ""
