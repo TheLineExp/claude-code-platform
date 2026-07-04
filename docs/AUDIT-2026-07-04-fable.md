@@ -86,7 +86,8 @@ CLAUDE.mds. The fix landed on origin; your machine never pulled it. **Merging �
 
 - **E1 (P1, one-line)** `money-concurrency-reviewer.md:5` `model: inherit` → invoked from a
   Sonnet-routed context (route is standing policy) the adversarial money review silently runs on
-  **Sonnet**. Fix: `model: opus`.
+  **Sonnet**. Fix: `model: opus`. **✅ FIXED 2026-07-04** — applied in `platform/global/agents/`
+  and synced to `~/.claude` (`--diff` clean); uncommitted in claude-code-platform.
 - **E2 (P2)** parity-sweep is structurally blind to the helper-bypass writer (`_withSettlementLock`
   class): it greps CHANGED symbols, finding consumers but never a raw `prisma.x.update` that
   skips the new lock. No repo map (can't locate portal/vouchers to sweep siblings). Weak grep
@@ -136,7 +137,7 @@ CLAUDE.mds. The fix landed on origin; your machine never pulled it. **Merging �
    9.8K V3 tax + the pathway contradictions).
 3. **Deployability (Theme D)** — Mac-ify traceability-review; `~` in node hook commands;
    delete setup.sh; add backlog-location write; fix the setup docs.
-4. **Agent strengthening (Theme E)** — money-reviewer `model: opus` (do first, one line);
+4. **Agent strengthening (Theme E)** — ~~money-reviewer `model: opus`~~ (✅ done 2026-07-04);
    parity-sweep writer-mapping + repo map + grep hygiene; make PR-Ready a real hook.
 5. **Token slim (Theme G)** — split graphify + shipit into core + lazy reference; trim
    traceability desc; collapse skill copies.
