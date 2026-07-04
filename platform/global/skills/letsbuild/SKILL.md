@@ -230,17 +230,14 @@ WORKTREE_PATH="$(git rev-parse --show-toplevel)/../${REPO_NAME}-${XREF}"
 
 git worktree add "$WORKTREE_PATH" "$BRANCH"
 
-# Copy config to worktree
+# Copy config to worktree. Guard hooks are GLOBAL now (~/.claude/hooks fires in every
+# session, worktrees included) — do NOT copy .claude/hooks or the hooks-only
+# .claude/settings.json into the worktree (that copy caused the old .claude/hooks/hooks
+# "Z1" nesting bug and re-introduced per-repo drift). Only per-worktree state + local env.
 mkdir -p "$WORKTREE_PATH/.claude"
 echo "$XREF" > "$WORKTREE_PATH/.claude/window-id"
 [ -f ".env" ] && cp ".env" "$WORKTREE_PATH/.env"
-[ -f ".claude/settings.json" ] && cp ".claude/settings.json" "$WORKTREE_PATH/.claude/settings.json"
 [ -f ".claude/settings.local.json" ] && cp ".claude/settings.local.json" "$WORKTREE_PATH/.claude/settings.local.json"
-# Mirror hooks WITHOUT nesting: when the dest dir already exists (the worktree
-# is a checkout that tracks .claude/hooks/), `cp -r SRC DEST` copies SRC *inside*
-# DEST → .claude/hooks/hooks (the Z1 bug). Remove the dest first so we mirror, not
-# nest. Guard the rm against an empty $WORKTREE_PATH.
-[ -d ".claude/hooks" ] && [ -n "$WORKTREE_PATH" ] && rm -rf "$WORKTREE_PATH/.claude/hooks" && cp -r ".claude/hooks" "$WORKTREE_PATH/.claude/hooks"
 ```
 
 **Step 3: Set window-id in repos used directly (no worktree)**
@@ -352,13 +349,10 @@ mkdir -p "$WORKTREE_PATH/.claude"
 echo "$WINDOW_ID" > "$WORKTREE_PATH/.claude/window-id"
 echo "setup" > .claude/window-id
 [ -f ".env" ] && cp ".env" "$WORKTREE_PATH/.env"
-[ -f ".claude/settings.json" ] && cp ".claude/settings.json" "$WORKTREE_PATH/.claude/settings.json"
 [ -f ".claude/settings.local.json" ] && cp ".claude/settings.local.json" "$WORKTREE_PATH/.claude/settings.local.json"
-# Mirror hooks WITHOUT nesting: when the dest dir already exists (the worktree
-# is a checkout that tracks .claude/hooks/), `cp -r SRC DEST` copies SRC *inside*
-# DEST → .claude/hooks/hooks (the Z1 bug). Remove the dest first so we mirror, not
-# nest. Guard the rm against an empty $WORKTREE_PATH.
-[ -d ".claude/hooks" ] && [ -n "$WORKTREE_PATH" ] && rm -rf "$WORKTREE_PATH/.claude/hooks" && cp -r ".claude/hooks" "$WORKTREE_PATH/.claude/hooks"
+# Guard hooks are GLOBAL (~/.claude/hooks fires in worktrees too) — do NOT copy
+# .claude/hooks or the hooks-only .claude/settings.json into the worktree. That copy
+# caused the old .claude/hooks/hooks "Z1" nesting bug and re-introduced per-repo drift.
 ```
 
 **Step 5: Register work**
