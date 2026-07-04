@@ -9,8 +9,15 @@
 
 INPUT=$(cat)
 
-# Extract command from JSON: {"command": "git status"} → git status
-COMMAND=$(echo "$INPUT" | grep -o '"command"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/"command"[[:space:]]*:[[:space:]]*"//;s/"$//')
+# Extract command from JSON, correctly handling escaped quotes/backslashes
+# (`echo "hi" > f` arrives as `"command":"echo \"hi\" > f"` — a naive `[^"]*`
+# stops at the first \" and truncates the command before the redirect). Perl
+# parses the JSON string value with escapes; fall back to a greedy sed if perl
+# is somehow absent (worst case COMMAND is empty → hooks fast-path allow).
+COMMAND=$(printf '%s' "$INPUT" | perl -0777 -ne 'if(/"command"\s*:\s*"((?:[^"\\]|\\.)*)"/s){my $c=$1; $c=~s/\\(["\\\/])/$1/g; $c=~s/\\n/\n/g; $c=~s/\\t/\t/g; print $c}' 2>/dev/null)
+if [ -z "$COMMAND" ] && echo "$INPUT" | grep -q '"command"'; then
+  COMMAND=$(echo "$INPUT" | sed -E 's/.*"command"[[:space:]]*:[[:space:]]*"(.*)".*/\1/' | sed 's/\\"/"/g')
+fi
 
 # Extract file_path for Edit/Write hooks: {"file_path": "/path/to/file"} → /path/to/file
 FILE_PATH=$(echo "$INPUT" | sed -n 's/.*"file_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
@@ -24,7 +31,11 @@ NEEDS_GIT_CHECK=false
 NEEDS_FILE_CHECK=false
 
 if [ -n "$COMMAND" ]; then
-  if echo "$COMMAND" | grep -qE '^(git |gh )'; then
+  # git/gh anywhere as a command word — NOT just at the start. `cd x && git push`,
+  # `VAR=1 gh pr merge`, `sudo git …` must all trip the git guards. Over-matching is
+  # safe: the downstream hooks each do their own precise check. (Preceded by start or
+  # a separator, not an identifier char, so `mygit`/`night` don't match.)
+  if echo "$COMMAND" | grep -qE '(^|[^[:alnum:]_.-])(git|gh)[[:space:]]'; then
     NEEDS_GIT_CHECK=true
   fi
   # Redirect detection: `>`/`>>` followed by an eventual filename, WITH or

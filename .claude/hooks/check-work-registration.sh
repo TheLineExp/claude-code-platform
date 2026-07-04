@@ -19,28 +19,36 @@ if ! echo "$BRANCH" | grep -q "^${FEATURE_PREFIX}"; then
   exit 0
 fi
 
-# Find active-work.md — check current repo first, then main repo (worktree support)
-ACTIVE_WORK=""
-if [ -f "$REPO_ROOT/.claude/active-work.md" ]; then
-  ACTIVE_WORK="$REPO_ROOT/.claude/active-work.md"
-fi
-
-# If in a worktree, also check the main repo
+# Collect candidate active-work files — the current repo AND (if in a worktree) the
+# main checkout. The branch may be registered in EITHER (letsbuild copies the row into
+# the worktree; one file can lag the other), so accept a match in any candidate rather
+# than letting the main-repo file overwrite a valid worktree candidate.
+CANDIDATES=()
+[ -f "$REPO_ROOT/.claude/active-work.md" ] && CANDIDATES+=("$REPO_ROOT/.claude/active-work.md")
 GIT_COMMON=$(git rev-parse --git-common-dir 2>/dev/null)
 if [ -n "$GIT_COMMON" ] && [ "$GIT_COMMON" != ".git" ]; then
   MAIN_REPO=$(dirname "$GIT_COMMON")
-  if [ -f "$MAIN_REPO/.claude/active-work.md" ]; then
-    ACTIVE_WORK="$MAIN_REPO/.claude/active-work.md"
-  fi
+  [ -f "$MAIN_REPO/.claude/active-work.md" ] && CANDIDATES+=("$MAIN_REPO/.claude/active-work.md")
 fi
 
-if [ -z "$ACTIVE_WORK" ]; then
+if [ ${#CANDIDATES[@]} -eq 0 ]; then
   echo "BLOCKED: No .claude/active-work.md found. Run /letsbuild first to register your work." >&2
   exit 2
 fi
 
+# Registered = the branch is a WHOLE table column `| <branch> |`, not a substring, so
+# `feature/w1-foo` is NOT satisfied by a row for `feature/w1-foobar`.
+BRANCH_RE=$(printf '%s' "$BRANCH" | sed 's/[][\.*^$(){}+?|/]/\\&/g')
+ACTIVE_WORK="${CANDIDATES[0]}"
+REGISTERED=false
+for f in "${CANDIDATES[@]}"; do
+  if grep -qE "\|[[:space:]]*${BRANCH_RE}[[:space:]]*\|" "$f"; then
+    REGISTERED=true; ACTIVE_WORK="$f"; break
+  fi
+done
+
 # Check if branch is registered
-if ! grep -qF "$BRANCH" "$ACTIVE_WORK"; then
+if [ "$REGISTERED" != true ]; then
   echo "BLOCKED: Branch '$BRANCH' is not registered in active-work.md." >&2
   echo "" >&2
   echo "Current registrations:" >&2

@@ -30,8 +30,9 @@ if echo "$COMMAND" | grep -qE 'git checkout \.$'; then
   exit 2
 fi
 
-if echo "$COMMAND" | grep -qE 'git clean.*-f'; then
-  echo "BLOCKED: 'git clean -f' permanently deletes untracked files." >&2
+# git clean force — including combined short flags (`-xdf`, `-df`) and `--force`.
+if echo "$COMMAND" | grep -qE 'git clean\b.*(-[a-zA-Z]*f|--force)'; then
+  echo "BLOCKED: 'git clean' with force permanently deletes untracked files." >&2
   exit 2
 fi
 
