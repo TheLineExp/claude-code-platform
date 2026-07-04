@@ -18,11 +18,28 @@ _Migrated from `fleetmanager-reservations/docs/FEATURE_REQUESTS.md` on 2026-06-1
 - Add with `/feature add <description>` (size-checked — small/defined work goes to `/todo`).
 - Every request carries a **Repo(s)/area** tag so the cross-repo list stays scannable.
 - `/feature review` re-prioritizes and checks whether items should move to a repo's `MASTER_PLAN.md` or down to `/todo`.
-- FR IDs are a single shared sequence across all repos. Next free ID: **FR-062**.
+- FR IDs are a single shared sequence across all repos. Next free ID: **FR-063**.
 
 ---
 
 ## Open Requests
+
+### FR-062: Return-to-service date required for out-of-service bikes (future-booking gate)
+- **Repo(s)/area**: cross-repo — reservations (future availability gate) + FM V3 (status→OOS coupling, return-date UI, checkout override)
+- **Status**: open
+- **Priority**: P2 (correctness/UX; not a safety hole — present-state checkout gate + w72 still block service at pickup)
+- **Phase-fit**: follow-up to the w72 present-state fix (`fmDb.isBikePresentAvailable`, LINE-DNRE63); reservations availability + FM V3 bike-status/OOS
+- **Requested**: 2026-07-04
+- **Source**: Mike, 2026-07-04 — after verifying w72, the deeper half: future-booking availability for non-ready bikes.
+- **Core rule (Mike)**: (1) **No service/broken bike is future-bookable WITHOUT a return-to-service date** — no date ⇒ block all future windows (like today's indefinite-OOS); with a date ⇒ auto-rejoin for windows on/after it (windowed OOS, already works). (2) **Maintenance is NEVER a block** (present or future) — do not add maintenance to any gate; w72 fixed present-state. (3) **Failed-safety bikes that reach checkout are bumped there by fleet-manager push** — the present-state checkout gate + manager override is the acceptable backstop, NOT a requirement to perfectly pre-block every one.
+- **Problem / evidence**: FM has two decoupled mechanisms — task-derived status (`service`=failed-safety/manual, `maintenance`=scheduled) sets NO availability fields; manual `bikeService.setOutOfService` sets `outOfServiceUntil` (dated auto-rejoin) / `outOfServiceSince`-no-date (indefinite) / `safetyHold` (broken). The future gate `availabilityService.isOutOfServiceAtStart` blocks only sold/retired + safetyHold + OOS-window and never reads `status='service'`. **Verified prod (The Line HQ, 35 non-ready bikes, 2026-07-04): ZERO bikes have a return date (`outOfServiceUntil`)** — the dated mechanism is unused; **3 of 7 `service` bikes have no OOS backing → currently future-bookable**, violating the core rule (in_use ×7 + maintenance ×7 correctly future-bookable; sold ×11 + Not-Ready ×2 correctly blocked).
+- **Scope**:
+  - (b) **reservations code** — `isOutOfServiceAtStart`: a `status='service'` (and however 'broken' is modeled) bike with no `outOfServiceUntil` blocks all future; with a date, block until the date. Blocks the 3 unbacked service bikes. Needs a parity-sweep (future-availability twins: `getAvailableBikes`, `bikeHorizonAvailability`, assertBookable).
+  - (a) **FM V3 UI/process** — require (or strongly prompt) a return-to-service date, or explicit 'indefinite', whenever a bike is marked out-of-service or a failed-safety/manual service task opens, so staff actually set dates.
+  - (c) **checkout** — confirm the fleet-manager override/push path handles a failed-safety bike at checkout (present-state gate already blocks; verify the manager can push through with reason + audit).
+- **Design Qs**: exact status/flags for 'broken' vs 'service' (is `safetyHold` the broken flag?); which statuses gate the future path (service only, or a set); auto-rejoin on service-task-close vs wait-for-date; **confirm the in_use invariant** — in_use bikes have NO OOS backing and rely solely on the reservation-conflict overlap on their active rental; close any non-reservation / demo / walk-in checkout leak.
+- **Acceptance**: no service/broken bike is future-bookable without a return-to-service date; maintenance never blocks; failed-safety at checkout handled by manager push.
+- **Notes**: see memory `maintenance-not-a-rental-block`. The reservations code piece (b) is small (~a couple lines in `isOutOfServiceAtStart`) but is a future-booking behavior change and needs the FM V3 return-date UI (a) to be usable + a parity-sweep — can be expedited independently if Mike wants the 3 bikes blocked sooner.
 
 ### FR-061: Partner Booking Portal + Automated Commission Payouts (Stripe Connect)
 - **Repo(s)/area**: cross-repo — reservations (Affiliate upgrade + partner Connect onboarding + payout job + standalone partner portal) + FM V3 (admin create-partner) · builds on the in-flight `wpay-settlement` Connect-charging work
