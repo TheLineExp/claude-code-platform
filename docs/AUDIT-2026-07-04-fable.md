@@ -45,6 +45,19 @@ CLAUDE.mds. The fix landed on origin; your machine never pulled it. **Merging �
 
 ## THEME C — Fleet consolidation incomplete + stale local checkouts
 
+> **STATUS 2026-07-04 (batch #1 executed):** All 3 local checkouts pulled to merged
+> origin/staging (C2 ✅ — V3's 46-agent pack + 10 skills gone; reservations slim landed via
+> pull, so C4's 37.9K measurement was the stale checkout). V3#1229 + vouchers#322 were already
+> merged; **reservations#1449 verified green (checks pass, 0 unresolved threads) but agents
+> cannot merge (block-all policy) — Mike merges.** Remainder shipped as cross-repo x1 PRs:
+> reservations#1453 (pathway line + delete retired `.claude/agents/agents/`), V3#1232 (hooks
+> claim + Available Skills rewrite), vouchers#323 (pathway line + hook wording + registry
+> prune + window-id sentinel). Worktree GC: 7 merged worktrees removed (reservations);
+> `fleetmanager-vouchers-chore18` is merged but DIRTY — needs Mike's eyes. Stale
+> active-work rows pruned: 85→40 / 37→18 / 31→26 (merged-only; unmerged-stale rows left
+> registered). NOT yet done: none of C3's substance remains — the graphify-first
+> contradiction claimed in C3/C4 no longer exists in the pulled CLAUDE.mds.
+
 - **C1 (P1)** All 3 fleet repos still carry per-repo skills/agents (git-tracked in the local
   checkout): reservations `.claude/skills/{letsbuild,shipit,code-review,pre-deploy,feature,
   api-review,security-review}` + nested `.claude/agents/agents/`; V3 10 skills + 18 persona
@@ -86,7 +99,8 @@ CLAUDE.mds. The fix landed on origin; your machine never pulled it. **Merging �
 
 - **E1 (P1, one-line)** `money-concurrency-reviewer.md:5` `model: inherit` → invoked from a
   Sonnet-routed context (route is standing policy) the adversarial money review silently runs on
-  **Sonnet**. Fix: `model: opus`.
+  **Sonnet**. Fix: `model: opus`. **✅ FIXED 2026-07-04** — applied in `platform/global/agents/`
+  and synced to `~/.claude` (`--diff` clean); uncommitted in claude-code-platform.
 - **E2 (P2)** parity-sweep is structurally blind to the helper-bypass writer (`_withSettlementLock`
   class): it greps CHANGED symbols, finding consumers but never a raw `prisma.x.update` that
   skips the new lock. No repo map (can't locate portal/vouchers to sweep siblings). Weak grep
@@ -136,7 +150,7 @@ CLAUDE.mds. The fix landed on origin; your machine never pulled it. **Merging �
    9.8K V3 tax + the pathway contradictions).
 3. **Deployability (Theme D)** — Mac-ify traceability-review; `~` in node hook commands;
    delete setup.sh; add backlog-location write; fix the setup docs.
-4. **Agent strengthening (Theme E)** — money-reviewer `model: opus` (do first, one line);
+4. **Agent strengthening (Theme E)** — ~~money-reviewer `model: opus`~~ (✅ done 2026-07-04);
    parity-sweep writer-mapping + repo map + grep hygiene; make PR-Ready a real hook.
 5. **Token slim (Theme G)** — split graphify + shipit into core + lazy reference; trim
    traceability desc; collapse skill copies.
