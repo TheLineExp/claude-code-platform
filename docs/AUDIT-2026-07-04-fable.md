@@ -45,6 +45,19 @@ CLAUDE.mds. The fix landed on origin; your machine never pulled it. **Merging �
 
 ## THEME C — Fleet consolidation incomplete + stale local checkouts
 
+> **STATUS 2026-07-04 (batch #1 executed):** All 3 local checkouts pulled to merged
+> origin/staging (C2 ✅ — V3's 46-agent pack + 10 skills gone; reservations slim landed via
+> pull, so C4's 37.9K measurement was the stale checkout). V3#1229 + vouchers#322 were already
+> merged; **reservations#1449 verified green (checks pass, 0 unresolved threads) but agents
+> cannot merge (block-all policy) — Mike merges.** Remainder shipped as cross-repo x1 PRs:
+> reservations#1453 (pathway line + delete retired `.claude/agents/agents/`), V3#1232 (hooks
+> claim + Available Skills rewrite), vouchers#323 (pathway line + hook wording + registry
+> prune + window-id sentinel). Worktree GC: 7 merged worktrees removed (reservations);
+> `fleetmanager-vouchers-chore18` is merged but DIRTY — needs Mike's eyes. Stale
+> active-work rows pruned: 85→40 / 37→18 / 31→26 (merged-only; unmerged-stale rows left
+> registered). NOT yet done: none of C3's substance remains — the graphify-first
+> contradiction claimed in C3/C4 no longer exists in the pulled CLAUDE.mds.
+
 - **C1 (P1)** All 3 fleet repos still carry per-repo skills/agents (git-tracked in the local
   checkout): reservations `.claude/skills/{letsbuild,shipit,code-review,pre-deploy,feature,
   api-review,security-review}` + nested `.claude/agents/agents/`; V3 10 skills + 18 persona
