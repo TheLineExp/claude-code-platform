@@ -109,12 +109,14 @@ declare -a SRC_FILES=( \
   "$GLOBAL_SRC/claude-CLAUDE.template.md" \
   "$GLOBAL_SRC/claude-settings.template.json" \
   "$GLOBAL_SRC/backlog-gate.js" \
+  "$GLOBAL_SRC/session-guard.js" \
   "$GLOBAL_SRC/statusline-command.sh" \
 )
 declare -a LIVE_FILES=( \
   "$CLAUDE_HOME/CLAUDE.md" \
   "$CLAUDE_HOME/settings.json" \
   "$CLAUDE_HOME/hooks/backlog-gate.js" \
+  "$CLAUDE_HOME/hooks/session-guard.js" \
   "$CLAUDE_HOME/statusline-command.sh" \
 )
 

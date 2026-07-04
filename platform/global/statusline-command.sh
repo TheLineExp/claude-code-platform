@@ -61,6 +61,21 @@ if [ -n "$used_pct" ]; then
   parts+=("$(printf "${color}ctx:%s%%\033[0m" "$used_int")")
 fi
 
+# --- Session length (marathon-session guard) ---
+# Long sessions re-read the full context every turn — the audit's #1 token drain.
+# Make it VISIBLE: turn count, dim normally, yellow when long, red "rotate" when very long.
+transcript=$(echo "$input" | jq -r '.transcript_path // empty')
+if [ -n "$transcript" ] && [ -f "$transcript" ]; then
+  turns=$(grep -c '"type":"assistant"' "$transcript" 2>/dev/null || echo 0)
+  if [ "$turns" -ge 800 ]; then
+    parts+=("$(printf '\033[0;31m⟳%s rotate\033[0m' "$turns")")
+  elif [ "$turns" -ge 400 ]; then
+    parts+=("$(printf '\033[0;33m⟳%s\033[0m' "$turns")")
+  elif [ "$turns" -gt 0 ]; then
+    parts+=("$(printf '\033[0;90m⟳%s\033[0m' "$turns")")
+  fi
+fi
+
 # Join with spaces
 printf '%s' "${parts[0]}"
 for part in "${parts[@]:1}"; do

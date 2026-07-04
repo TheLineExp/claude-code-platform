@@ -111,6 +111,16 @@
     ]
   },
   "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"/Users/mikekunz/.claude/hooks/session-guard.js\""
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Skill",
