@@ -23,6 +23,15 @@ source "$SCRIPT_DIR/_parse-input.sh"
 # Fast path: not a git command at all → nothing to check (cheap, no gh/network).
 $NEEDS_GIT_CHECK || exit 0
 
+# Heredoc bodies are DATA, not commands: a commit message via `-F - <<EOF … EOF`
+# routinely contains git examples (backtick `git push`, `--no-verify`, …) that the
+# flat tokenizer would mis-read as real invocations (this hook fired on its own
+# commit for exactly that reason). Strip heredoc bodies, then re-tokenize the
+# cleaned command so action detection sees only real syntax.
+_CLEAN=$(printf '%s' "$COMMAND" | perl -0777 -pe 's/<<-?\s*(["\x27]?)([A-Za-z_]\w*)\1.*?\n\s*\2\s*(?=\n|$)//gs' 2>/dev/null)
+[ -n "$_CLEAN" ] || _CLEAN="$COMMAND"
+_TOKENIZED=$(printf '%s' "$_CLEAN" | perl "$SCRIPT_DIR/_tokenize.pl" 2>/dev/null)
+
 # Find the git action this command performed. push wins over commit if both ran
 # (a `git commit && git push` chain should be judged on the push).
 ACTION=""; EFFDIR="."
@@ -40,6 +49,18 @@ DIR=$(_resolve_dir "${EFFDIR:-.}")
 cd "$DIR" 2>/dev/null || exit 0
 command -v gh >/dev/null 2>&1 || exit 0     # no gh → can't check landing; stay silent
 
+# This is a PostToolUse hook that must NEVER wedge a session, but it makes network
+# calls (gh, git fetch). Cap each with a timeout when one is available so a hung
+# remote can't block after every push. macOS ships no `timeout`; fall back to a
+# plain run there (no regression vs. the un-timed original), preferring gtimeout
+# (coreutils) if present.
+_to() { # _to <secs> <cmd...>
+  local t="$1"; shift
+  if   command -v timeout  >/dev/null 2>&1; then timeout  "$t" "$@"
+  elif command -v gtimeout >/dev/null 2>&1; then gtimeout "$t" "$@"
+  else "$@"; fi
+}
+
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
 [ -n "$BRANCH" ] && [ "$BRANCH" != HEAD ] || exit 0
 HEAD_SHA=$(git rev-parse --short HEAD 2>/dev/null)
@@ -49,7 +70,7 @@ HEAD_SHA=$(git rev-parse --short HEAD 2>/dev/null)
 case "$BRANCH" in main|master|staging) exit 0 ;; esac
 
 # Most-recent PR for this branch, any state (one gh call; parsed with python3).
-PR_JSON=$(gh pr list --head "$BRANCH" --state all --json number,state,baseRefName,url --limit 1 2>/dev/null)
+PR_JSON=$(_to 20 gh pr list --head "$BRANCH" --state all --json number,state,baseRefName,url --limit 1 2>/dev/null)
 PARSE=$(printf '%s' "$PR_JSON" | python3 -c '
 import sys, json
 try: a = json.load(sys.stdin)
@@ -83,7 +104,7 @@ case "$PR_STATE" in
     exit 2 ;;
   MERGED)
     # Did the merge actually include HEAD? (the exact near-miss check)
-    git fetch -q origin "$PR_BASE" 2>/dev/null
+    _to 20 git fetch -q origin "$PR_BASE" 2>/dev/null
     if git merge-base --is-ancestor HEAD "origin/$PR_BASE" 2>/dev/null; then
       echo "✓ fix-landing: $HEAD_SHA already in '$PR_BASE' via merged PR #$PR_NUM."
       exit 0

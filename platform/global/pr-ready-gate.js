@@ -111,11 +111,14 @@ function stopHook() {
   const prContextRe = /(github\.com\/[^\s)]+\/pull\/\d+|\bPR\s*#?\d+|\bpull request\b|staging PR|production PR|prod PR)/i;
   if (!readinessRe.test(text) || !prContextRe.test(text)) return;
 
-  // Which PRs does the claim name? Match markers by number (URL form also carries repo).
+  // Which PRs does the claim name? Only STRONG references — a `/pull/N` URL or an
+  // explicit `PR #N`. A bare `#N` is NOT harvested: it scoops issue refs and
+  // "closes #7" tails, and a fresh marker for that unrelated number would then
+  // falsely satisfy the claim (outside-review P1 — the multi-PR shipit flow where
+  // staging #7 was verified but prod #9 is the actual claim).
   const prNums = new Set();
   for (const mm of text.matchAll(/\/pull\/(\d+)/g)) prNums.add(mm[1]);
   for (const mm of text.matchAll(/\bPR\s*#?(\d+)/gi)) prNums.add(mm[1]);
-  for (const mm of text.matchAll(/#(\d+)\b/g)) prNums.add(mm[1]);
 
   if (hasFreshPass(prNums)) return; // verified — allow the claim
 
@@ -129,9 +132,12 @@ function stopHook() {
   process.stdout.write(JSON.stringify({ decision: 'block', reason }));
 }
 
-// A fresh PASS marker for at least one referenced PR (or, if the claim named no number,
-// any fresh PASS marker at all — the claim still had PR context).
+// A fresh PASS marker for at least one SPECIFICALLY-named PR. If the claim carried
+// PR context but no extractable number ("the staging PR is ready"), we cannot tie it
+// to a marker — block and make the model name the PR + verify, rather than pass on an
+// unrelated fresh marker (outside-review P2 — pairs with the P1 above).
 function hasFreshPass(prNums) {
+  if (prNums.size === 0) return false;
   let markers;
   try { markers = fs.readdirSync(MARKER_DIR); } catch { return false; }
   const now = Date.now();
@@ -141,7 +147,6 @@ function hasFreshPass(prNums) {
     try { mk = JSON.parse(fs.readFileSync(path.join(MARKER_DIR, f), 'utf8')); } catch { continue; }
     if (mk.verdict !== 'PASS') continue;
     if (now - (mk.ts || 0) > FRESH_MS) continue;
-    if (prNums.size === 0) return true;
     if (prNums.has(String(mk.pr))) return true;
   }
   return false;
@@ -159,7 +164,8 @@ function lastAssistantText(transcript) {
     if (o.type !== 'assistant') continue;
     const content = (o.message && o.message.content) || [];
     const text = content.filter(c => c && c.type === 'text').map(c => c.text).join('\n').trim();
-    return text; // last assistant message (its text, possibly empty if it was a tool call)
+    if (text) return text; // last TEXT-bearing assistant turn — skip trailing pure
+                           // tool-call turns whose text is empty (outside-review P2)
   }
   return '';
 }

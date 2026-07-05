@@ -110,6 +110,20 @@ mk_transcript "$T" "PR #9 is ready to merge."
 out=$(stop_decision "$T" false)
 echo "$out" | grep -q '"decision":"block"' && ok "stop: marker for other PR → block" || bad "stop: wrong-PR marker" "out=$out"
 
+# outside-review P1: claim about #9 with a "closes #7" tail + fresh marker for #7 →
+# BLOCK (the bare-#N scoop must NOT let the #7 marker satisfy the #9 claim)
+clear_markers; mark_pass o r 7
+mk_transcript "$T" "PR #9 is ready to merge (closes #7)."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: #9 claim, #7 marker via 'closes #7' → block" || bad "stop: P1 number-scoop" "out=$out"
+
+# outside-review P2: PR context but NO extractable number + a fresh marker for some PR →
+# BLOCK (cannot tie the claim to a marker; make the model name the PR)
+clear_markers; mark_pass o r 9
+mk_transcript "$T" "The staging PR is ready to merge."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: PR context, no number → block" || bad "stop: P2 no-number auto-pass" "out=$out"
+
 # malformed transcript → fail open (ALLOW, no crash)
 out=$(printf '{"transcript_path":"/nope","session_id":"s"}' | node "$GATE" 2>/dev/null); rc=$?
 { [ -z "$out" ] && [ "$rc" -eq 0 ]; } && ok "stop: missing transcript → fail open" || bad "stop: fail open" "out=$out rc=$rc"

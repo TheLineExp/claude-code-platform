@@ -23,7 +23,9 @@ generated FROM this repo — see docs/AUDIT-2026-07-02.md for why.
     platform.config.json. `_tokenize.pl` is a hard dependency: setup-machine.sh mirrors
     `*.sh` + `*.pl`, and without it the guards fail OPEN.
     **Any hook edit must run `platform/tests/hook-bypass-suite.sh` (194) AND
-    `platform/tests/hook-grammar-fuzz.sh` (CLEAN) before AND after — canonical and live.**
+    `platform/tests/hook-grammar-fuzz.sh` (CLEAN) before AND after — canonical and live.
+    Edits to the advisory hooks (`check-fix-landed.sh`, `pr-ready-gate.js`) must also run
+    `platform/tests/advisory-hooks.test.sh`.**
   - `backlog-gate.js` (PreToolUse hook), `session-guard.js` (UserPromptSubmit),
     `check-fix-landed.sh` (PostToolUse advisory: after a git commit/push, loudly flags an
     ORPHANED fix — pushed to an already-merged/closed PR branch, or no PR — so a fix can't
