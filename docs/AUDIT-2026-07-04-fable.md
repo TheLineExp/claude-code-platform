@@ -22,6 +22,69 @@ CLAUDE.mds. The fix landed on origin; your machine never pulled it. **Merging �
 
 ## THEME A — Guard hooks are porous (VERIFIED bypasses; live globally)
 
+> **STATUS 2026-07-04 (batch #2 executed):** A1–A11 + B1 all fixed in the canonical hooks.
+> Root cause across A1/A2/A3/A9/A10: guards matched the RAW command string — fixed by
+> quote-blanked per-segment matching in `_parse-input.sh` (`COMMAND_NOSTR`/`GIT_SEGMENTS`,
+> also strips env-assignment/wrapper prefixes and `git -C`-style global opts). A8: new
+> `_fleet_shaped` (fail-closed on `.claude/` presence) gates block-protected-branch;
+> worktree hooks still use `_fleet_active`. A7: quote-aware writer-target lexing in
+> block-file-redirect (sed -i/cp/mv/dd/sponge + `>|`); arbitrary interpreters
+> (`python -c`) remain a documented residual — FS-layer enforcement is the real fix.
+> Decision (Mike, batch #2): `MERGE_POLICY=block-all` is intended policy, now HARDCODED in
+> `_config.sh` (dead platform.config.json lookup + allow-staging branch removed — a config
+> override is itself a silent policy-downgrade vector). Adversarial suite at
+> `platform/tests/hook-bypass-suite.sh` (139 cases incl. the A9 must-PASS strings):
+> reproduced 49 failures pre-fix, 0 post-fix. Re-run it on EVERY hook edit.
+> Codex round 1 on PR #11 (both real, both fixed + suite-covered): quoted single-word args
+> were blanked with the A9 strings, hiding `"--no-verify"`/`"+master"` argv tokens — fixed
+> by preserving safe-word quoted content (blank only multi-word/separator values); and
+> cp/mv `-t/--target-directory` dest form bypassed the A7 writer parser. Same-family
+> addition: glob refspecs (`refs/heads/*`) on push are now blocked too.
+> Codex round 2 (all real, all fixed + suite-covered): closing `)` glued to the last token
+> (`(git reset --hard)`) — split on closing group delimiters too; `env -i`/`env -u NAME`
+> (and sudo/xargs) options before git defeated wrapper stripping — wrappers now consume
+> their options incl. arg-taking flags; and `git commit -m "-n"` false-blocked — the -n
+> scan now walks tokens like git's parser, skipping operands of value-taking options
+> (`-mn` = message "n" allowed; `-nm x` = no-verify blocked).
+> Codex round 3 (all real, all fixed + suite-covered): path-qualified `/usr/bin/git` (and
+> `\git` alias-bypass) produced no segments — first token is now basename/backslash
+> normalized; bare `--gpg-sign` wrongly consumed the next token (it takes an ATTACHED
+> optional arg only) — removed from the operand-skip list, `-S`/`-Sn` cluster handling
+> added; and the block-file-redirect writer lexer had the R2 wrapper-options gap on its
+> TWIN surface — now in lockstep, with paired suite cases enforcing parity. Suite: 151.
+> Codex round 4 (all real, all fixed + suite-covered): (1) the git/file pre-greps ran on
+> raw `$COMMAND`, so a quoted command word (`"git" push`, `"cp" x y`) fast-path-allowed —
+> both pre-greps now run on COMMAND_NOSTR; (2) `env -S "<cmd string>"` executes its operand
+> but quote-blanking erased it — new COMMAND_EXEC flattens `env -S`/`--split-string` before
+> normalization (used by the git segmenter AND the writer lexer); (3) **`git -C <path>`
+> operated on a different checkout than the stateful hooks resolved state for** — the
+> segmenter now emits `EFFDIR<TAB>SEGMENT`, and block-protected-branch / check-work-
+> registration / check-branch-prefix resolve branch, fleet-shape, and window-id AT that
+> directory (`git -C ../main commit` from a feature worktree is now judged by ../main's
+> branch and blocked). Incidental: the BSD-sed tab-strip for the pure-segment column
+> mismatched letter-bearing -C paths — switched to tab-aware `cut`. Suite: 167.
+> Codex round 5 (all real, all fixed + suite-covered): `bash|sh|dash|zsh|ksh -c "<cmd>"`
+> executes its payload — COMMAND_EXEC now flattens shell `-c` operands alongside `env -S`
+> (iterated, so nesting unwraps); leading shell control keywords (`if git … ; then`,
+> `while gh … ; do`) left the segment starting with `if`/`while` — both the segmenter and
+> the writer lexer now strip them; and `--git-dir`/`--work-tree` were treated as inert —
+> now captured as EFFDIR (git-dir → its parent checkout). Suite: 180.
+> Codex round 6 (all real, all fixed + suite-covered): ANSI-C `$'…'` / locale `$"…"` quoting
+> produced plain argv tokens but normalization left the `$` glued (`$--no-verify`) — both
+> forms are now consumed and backslash-processed; `env '--split-string=<cmd>'` bundles the
+> flag and value in ONE quoted token that the earlier `env -S` flatten missed — added a
+> quoted-whole-token rule; and clustered attached `cp -vtsrc` (GNU `-v -t src`) evaded the
+> target-directory parse — now any short cluster containing `t` takes the attached remainder
+> (or next arg) as the destination. Suite: 187.
+>
+> **RESIDUALS (documented, not fixed — regex shell-parsing is inherently leaky):** (a) an
+> alternate-context path that both contains spaces AND is quoted (`git -C "/a b" commit`)
+> — the space defeats the `\S+` path token after A9 quote-blanking; (b) arbitrary
+> interpreters that write files (`python -c "open(...,'w')"`). Both are contrived for an
+> agent to emit accidentally. These hooks are GUARDRAILS (defense-in-depth); the hard
+> backstop for the dangerous ops is the settings.json deny-list (B1) + branch protection.
+> The bypass suite is the regression gate — extend it, don't reason from diffs.
+
 | # | Sev | File | Bypass (verified) | Fix |
 |---|---|---|---|---|
 | A1 | **P1** | block-protected-branch.sh:36,31 | `^git` anchor: `cd wt && git push origin master`, `VAR=1 git push origin master`, `true; git push origin master` all SKIP the guard → direct push to a deploy branch | drop `^`, match `(^|[^[:alnum:]_.-])git[[:space:]]+(commit\|push\|merge)\b` (mirror _parse-input's own detection) |

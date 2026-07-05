@@ -11,8 +11,12 @@ generated FROM this repo — see docs/AUDIT-2026-07-02.md for why.
   - `hooks/` — the git-safety guard hooks (block-*, check-*, enforce-worktree, deps
     `_parse-input.sh`/`_config.sh`). GLOBAL: they fire for every session via
     `~/.claude/settings.json`, not per-repo. Universal guards (no-verify, destructive-git,
-    gh-merge, rebase) run everywhere; worktree/deploy-branch hooks self-gate on a registered
-    `.claude/active-work.md` (via `_fleet_active`) so they only enforce in fleet repos.
+    gh-merge, rebase) run everywhere; worktree-discipline hooks self-gate on a registered
+    `.claude/active-work.md` (via `_fleet_active`), while block-protected-branch gates on a
+    `.claude/` dir existing (`_fleet_shaped` — fail-CLOSED even if active-work.md is emptied;
+    audit A8). Guards match per command SEGMENT with quoted strings blanked (never the raw
+    command), and policy (`_config.sh`) is hardcoded — no platform.config.json.
+    **Any hook edit must run `platform/tests/hook-bypass-suite.sh` before AND after.**
   - `backlog-gate.js` (PreToolUse hook), `statusline-command.sh`
   - `claude-CLAUDE.template.md` → `~/.claude/CLAUDE.md`; `claude-settings.template.json` → `~/.claude/settings.json`
   - `graphify-autoquery.js` — retired from deployment; kept in repo only

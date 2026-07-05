@@ -6,16 +6,21 @@
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/_parse-input.sh"
 
-# Fast path: only check on git commit
+# Fast path: only check on git commit (per segment — `cd wt && git commit`
+# must still be seen; audit A1 class)
 $NEEDS_GIT_CHECK || exit 0
-echo "$COMMAND" | grep -qE '^git commit\b' || exit 0
+echo "$GIT_SEGMENTS" | grep -qE '^git[[:space:]]+commit([[:space:]]|$)' || exit 0
+
+# Resolve against the checkout the commit targets — `git -C <path> commit` (R4).
+EFFDIR=$(_seg_effdir 'commit'); EFFDIR="${EFFDIR:-.}"
 
 # Global deployment: only enforce where the letsbuild workflow is active.
-_fleet_active || exit 0
+_fleet_active "$EFFDIR" || exit 0
 
 source "$SCRIPT_DIR/_config.sh"
+REPO_ROOT=$(git -C "$EFFDIR" rev-parse --show-toplevel 2>/dev/null || echo "$REPO_ROOT")
 
-BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+BRANCH=$(git -C "$EFFDIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
 
 # Skip check for non-feature branches
 if ! echo "$BRANCH" | grep -q "^${FEATURE_PREFIX}"; then
@@ -28,7 +33,7 @@ fi
 # than letting the main-repo file overwrite a valid worktree candidate.
 CANDIDATES=()
 [ -f "$REPO_ROOT/.claude/active-work.md" ] && CANDIDATES+=("$REPO_ROOT/.claude/active-work.md")
-GIT_COMMON=$(git rev-parse --git-common-dir 2>/dev/null)
+GIT_COMMON=$(git -C "$EFFDIR" rev-parse --git-common-dir 2>/dev/null)
 if [ -n "$GIT_COMMON" ] && [ "$GIT_COMMON" != ".git" ]; then
   MAIN_REPO=$(dirname "$GIT_COMMON")
   [ -f "$MAIN_REPO/.claude/active-work.md" ] && CANDIDATES+=("$MAIN_REPO/.claude/active-work.md")
