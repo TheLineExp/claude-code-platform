@@ -21,16 +21,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/_parse-input.sh"
 
 # Fast path: not a git command at all → nothing to check (cheap, no gh/network).
+# (Heredoc bodies are stripped upstream in _parse-input.sh, so a commit whose
+# message body quotes git commands is not mis-read as those commands here.)
 $NEEDS_GIT_CHECK || exit 0
-
-# Heredoc bodies are DATA, not commands: a commit message via `-F - <<EOF … EOF`
-# routinely contains git examples (backtick `git push`, `--no-verify`, …) that the
-# flat tokenizer would mis-read as real invocations (this hook fired on its own
-# commit for exactly that reason). Strip heredoc bodies, then re-tokenize the
-# cleaned command so action detection sees only real syntax.
-_CLEAN=$(printf '%s' "$COMMAND" | perl -0777 -pe 's/<<-?\s*(["\x27]?)([A-Za-z_]\w*)\1.*?\n\s*\2\s*(?=\n|$)//gs' 2>/dev/null)
-[ -n "$_CLEAN" ] || _CLEAN="$COMMAND"
-_TOKENIZED=$(printf '%s' "$_CLEAN" | perl "$SCRIPT_DIR/_tokenize.pl" 2>/dev/null)
 
 # Find the git action this command performed. push wins over commit if both ran
 # (a `git commit && git push` chain should be judged on the push).

@@ -152,6 +152,17 @@ allow "$H" "$FLEET_FEAT" 'git push origin feature/staging-fix'           'FP gua
 allow "$H" "$FLEET_FEAT" 'git push origin feature/w1-x'                  'normal feature push'
 allow "$H" "$FLEET_FEAT" 'echo "git push origin master"'                 'A9-class: literal in echo'
 allow "$H" "$FLEET_FEAT" 'git commit -m "true; git push origin master"'  'A9-class: literal in -m'
+# HEREDOC class (A9 via heredoc): a commit whose -F - message body quotes a
+# dangerous git command at LINE START must NOT trip a guard — the heredoc body is
+# stdin data, stripped upstream in _parse-input.sh. But a REAL command AFTER the
+# closing delimiter must still fire.
+allow block-protected-branch.sh "$FLEET_FEAT" $'git commit -F - <<EOF\nnotes:\ngit push origin master\nEOF'          'heredoc: protected literal in body → allow'
+allow block-no-verify.sh        "$FLEET_FEAT" $'git commit -F - <<EOF\nwhy:\ngit commit --no-verify\nEOF'            'heredoc: --no-verify in body → allow'
+allow block-destructive-git.sh  "$FLEET_FEAT" $'git commit -F - <<EOF\nfix:\ngit push --force origin x\ngit reset --hard\nEOF' 'heredoc: force/reset in body → allow'
+allow block-destructive-git.sh  "$FLEET_FEAT" $'git commit -F - <<-EOF\n\tgit push --force\n\tEOF'                   'heredoc: <<- indented delimiter → allow'
+allow block-destructive-git.sh  "$FLEET_FEAT" $'git commit -F - <<\x27EOF\x27\ngit push --force origin x\nEOF'       'heredoc: quoted delimiter → allow'
+block block-destructive-git.sh  "$FLEET_FEAT" $'git commit -F - <<EOF\nnote\nEOF\ngit push --force origin x'         'heredoc: REAL force push after close → block'
+block block-protected-branch.sh "$FLEET_FEAT" $'git commit -F - <<EOF\nnote\nEOF\ngit push origin master'           'heredoc: REAL protected push after close → block'
 block "$H" "$FLEET_MASTER" 'git commit -m "x"'                           'commit while standing on master'
 block "$H" "$FLEET_MASTER" 'git push'                                    'bare push while standing on master'
 block "$H" "$FLEET_MASTER" 'git merge feature/w1-x'                      'merge while standing on master'

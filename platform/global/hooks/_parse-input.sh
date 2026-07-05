@@ -46,9 +46,18 @@ SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 NEEDS_GIT_CHECK=false
 NEEDS_FILE_CHECK=false
 _TOKENIZED=""
-_CMD_BARE=$(printf '%s' "$COMMAND" | tr -d '\042\047\134')   # drop " ' \
+# Heredoc bodies are stdin DATA, never shell commands — the shell does not parse
+# their lines as commands. Strip them BEFORE tokenizing so a `git commit -F - <<EOF
+# … EOF` whose message body quotes `git push --force` / `git reset --hard` at line
+# start can't be mis-read as those commands and falsely blocked (the audit-A9
+# false-positive class, re-entering through heredocs). One chokepoint here fixes
+# EVERY guard (git + writer). Matches `<<WORD`, `<<-WORD`, `<< WORD`, quoted
+# `<<'WORD'`/`<<"WORD"`; leaves here-strings (`<<<`) and bit-shifts untouched.
+_CMD_TOK=$(printf '%s' "$COMMAND" | perl -0777 -pe 's/<<-?[[:blank:]]*(["\x27]?)([A-Za-z_]\w*)\1.*?\n[[:blank:]]*\2[[:blank:]]*(?=\n|$)//gs' 2>/dev/null)
+[ -n "$_CMD_TOK" ] || _CMD_TOK="$COMMAND"
+_CMD_BARE=$(printf '%s' "$_CMD_TOK" | tr -d '\042\047\134')   # drop " ' \
 if [ -n "$COMMAND" ] && printf '%s' "$_CMD_BARE" | grep -qE '(^|[^[:alnum:]_.-])(git|gh|sed|cp|mv|dd|sponge|tee)([^[:alnum:]_.-]|$)|>'; then
-  _TOKENIZED=$(printf '%s' "$COMMAND" | perl "$SCRIPT_DIR/_tokenize.pl" 2>/dev/null)
+  _TOKENIZED=$(printf '%s' "$_CMD_TOK" | perl "$SCRIPT_DIR/_tokenize.pl" 2>/dev/null)
   if [ -n "$_TOKENIZED" ]; then
     echo "$_TOKENIZED" | grep -qE '^C(git|gh)$' && NEEDS_GIT_CHECK=true
     if echo "$_TOKENIZED" | grep -qE '^C(sed|cp|mv|dd|sponge|tee)$' || echo "$_TOKENIZED" | grep -q '^R'; then

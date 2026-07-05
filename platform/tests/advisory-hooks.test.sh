@@ -173,6 +173,12 @@ GH_MODE=nopr; out=$(feed 'git commit -m x')
 { echo "$out" | grep -q 'rc=0' && [ "$(echo "$out" | grep -c fix-landing)" = 0 ]; } && ok "cfl: deploy branch → silent" || bad "cfl: deploy branch" "$out"
 git -C "$FX" checkout -q feature/w1-x
 
+# heredoc: a commit whose -F - body quotes `git push` must be seen as a COMMIT, not
+# a push (the original motivating bug — the hook firing on its own commit). No PR →
+# a commit is benign early work (exit 0), NOT the push orphan-warning.
+GH_MODE=nopr; out=$(feed $'git commit -F - <<EOF\nfix: stuff\ngit push origin master\nEOF')
+{ echo "$out" | grep -q 'rc=0' && [ "$(echo "$out" | grep -c 'NO open PR')" = 0 ]; } && ok "cfl: heredoc body 'git push' → commit not push" || bad "cfl: heredoc action" "$out"
+
 # `cd repo && git push` wrapper resolves via the tokenizer (no PR) → warn(2)
 GH_MODE=nopr; out=$(feed "cd \"$FX\" && git push origin feature/w1-x")
 { echo "$out" | grep -q 'rc=2' && echo "$out" | grep -q 'NO open PR'; } && ok "cfl: cd-wrapper push resolves" || bad "cfl: cd-wrapper" "$out"
