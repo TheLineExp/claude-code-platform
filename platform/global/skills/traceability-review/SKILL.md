@@ -61,12 +61,12 @@ Determine scope by checking both repos:
 
 ```bash
 echo "=== FM V3 REPO (Frontend) ==="
-cd "C:\Users\MichaelKunz\Documents\fleetmanager\Fleetmanager_V3"
+cd ~/vt/Fleetmanager_V3
 git diff --name-only HEAD~1 | grep -E '\.(jsx|js)$' | grep -E 'pages/|api/|hooks/'
 
 echo ""
 echo "=== RESERVATIONS REPO (Backend) ==="
-cd "C:\Users\MichaelKunz\Documents\fleetmanager-reservations"
+cd ~/vt/fleetmanager-reservations
 git diff --name-only HEAD~1 | grep -E '\.(js|prisma)$' | grep -E 'routes/|services/|middleware/|schema'
 ```
 
@@ -78,7 +78,7 @@ For each changed UI component, find all user actions that trigger API calls:
 echo "=== UI ACTIONS IN CHANGED FILES ==="
 # Find onClick, onSubmit, useMutation, useQuery references
 grep -rn "onClick\|onSubmit\|useMutation\|useQuery\|handleClick\|handleSubmit" \
-  "C:\Users\MichaelKunz\Documents\fleetmanager\Fleetmanager_V3\frontend\src\pages\reservations" \
+  ~/vt/Fleetmanager_V3/frontend/src/pages/reservations \
   --include="*.jsx" | head -30
 ```
 
@@ -90,7 +90,7 @@ For each API call found, verify it maps to a real API client function:
 echo "=== API CLIENT FUNCTIONS ==="
 # List all exported API functions
 grep -n "^\s*\w\+:" \
-  "C:\Users\MichaelKunz\Documents\fleetmanager\Fleetmanager_V3\frontend\src\api\reservations.js"
+  ~/vt/Fleetmanager_V3/frontend/src/api/reservations.js
 ```
 
 ### Step 4: Match to Backend Routes
@@ -101,7 +101,7 @@ For each API client HTTP call, find the matching Express route:
 echo "=== BACKEND ROUTES ==="
 # List all route definitions
 grep -rn "router\.\(get\|post\|put\|patch\|delete\)" \
-  "C:\Users\MichaelKunz\Documents\fleetmanager-reservations\backend\src\routes" \
+  ~/vt/fleetmanager-reservations/backend/src/routes \
   --include="*.js"
 ```
 
@@ -112,7 +112,7 @@ For each route handler, identify the service function called:
 ```bash
 echo "=== SERVICE CALLS FROM ROUTES ==="
 grep -rn "Service\.\|service\." \
-  "C:\Users\MichaelKunz\Documents\fleetmanager-reservations\backend\src\routes" \
+  ~/vt/fleetmanager-reservations/backend/src/routes \
   --include="*.js" | head -30
 ```
 
@@ -123,7 +123,7 @@ For each service function, check Prisma calls against the schema:
 ```bash
 echo "=== PRISMA CALLS IN SERVICES ==="
 grep -rn "prisma\.\w\+\.\(find\|create\|update\|delete\|upsert\|count\|aggregate\)" \
-  "C:\Users\MichaelKunz\Documents\fleetmanager-reservations\backend\src\services" \
+  ~/vt/fleetmanager-reservations/backend/src/services \
   --include="*.js" | head -30
 ```
 
@@ -232,7 +232,7 @@ The agent will:
 This skill is part of the deployment pipeline:
 
 ```
-/letsbuild → develop → /pre-deploy → /traceability-review → /shipit
+/letsbuild → develop → /code-review + /traceability-review → /shipit
 ```
 
 For deeper analysis, invoke the `traceability-reviewer` agent:

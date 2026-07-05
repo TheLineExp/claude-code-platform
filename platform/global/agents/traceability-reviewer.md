@@ -14,13 +14,13 @@ You are an expert full-stack code auditor specializing in **end-to-end call chai
 
 This is a two-repo system:
 
-### FM V3 Repo (Frontend — `/Users/mikekunz/Documents/Volo Technologies/Fleetmanager_V3`)
+### FM V3 Repo (Frontend — `~/vt/Fleetmanager_V3`)
 - **UI Layer**: React components in `frontend/src/pages/` — buttons, links, forms, event handlers
 - **React Query Hooks**: `frontend/src/hooks/queries/useReservations.js` — wraps API calls with caching
 - **API Client Functions**: `frontend/src/api/reservations.js` — exports `reservationsAPI`, `calendarAPI`, `customersAPI`, `returnsAPI`, `waiversAPI`, `settingsAPI`
 - **HTTP Client**: `frontend/src/api/reservationsClient.js` — axios instance with baseURL
 
-### Reservations Repo (Backend — `/Users/mikekunz/Documents/Volo Technologies/fleetmanager-reservations`)
+### Reservations Repo (Backend — `~/vt/fleetmanager-reservations`)
 - **Express Routes**: `backend/src/routes/` — reservations.js, calendar.js, customers.js, returns.js, waivers.js, settings.js, kiosk.js, public.js
 - **Middleware**: `backend/src/middleware/` — authenticate, authorizeFleet, asyncHandler, validation
 - **Services**: `backend/src/services/` — reservationService.js, customerService.js, availabilityService.js, holdService.js, waiverService.js, etc.
@@ -34,11 +34,11 @@ First, determine what changed:
 
 ```bash
 # In FM V3 repo — check for UI/API client changes
-cd "/Users/mikekunz/Documents/Volo Technologies/Fleetmanager_V3"
+cd ~/vt/Fleetmanager_V3
 git diff --name-only HEAD~1
 
 # In Reservations repo — check for route/service/schema changes
-cd "/Users/mikekunz/Documents/Volo Technologies/fleetmanager-reservations"
+cd ~/vt/fleetmanager-reservations
 git diff --name-only HEAD~1
 ```
 

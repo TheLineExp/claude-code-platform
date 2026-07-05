@@ -61,7 +61,12 @@ Full descriptions: [SKILLS_REFERENCE.md](SKILLS_REFERENCE.md).
 `setup-machine.sh` is the single writer of `~/.claude`:
 
 - **Default mode** — syncs `platform/global/` into `~/.claude`, backing up anything it
-  overwrites (`*.bak-N`).
+  overwrites to `~/.claude/backups/<timestamp>/`. It mirrors: the CLAUDE.md + settings.json
+  templates (plain copy, no substitution); the 9 skills and 3 agents; the guard hooks —
+  every `*.sh` **and** `_tokenize.pl` (the shared tokenizer every guard sources; a `*.sh`-only
+  mirror would leave the guards fail-open); the `backlog-gate.js` + `session-guard.js` hooks
+  and `statusline-command.sh`; and a `~/.claude/backlog-location` pointer to this repo's
+  `backlog/` dir.
 - **`--diff` mode** — read-only drift report (IDENTICAL / DIFFERS / MISSING / STRAY); exits
   1 on drift. Run before committing.
 

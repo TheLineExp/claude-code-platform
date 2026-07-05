@@ -117,7 +117,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"/Users/mikekunz/.claude/hooks/session-guard.js\""
+            "command": "node ~/.claude/hooks/session-guard.js"
           }
         ]
       }
@@ -128,7 +128,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"/Users/mikekunz/.claude/hooks/backlog-gate.js\""
+            "command": "node ~/.claude/hooks/backlog-gate.js"
           }
         ]
       },
