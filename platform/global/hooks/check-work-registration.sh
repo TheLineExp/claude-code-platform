@@ -6,13 +6,15 @@
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/_parse-input.sh"
 
-# Fast path: only check on git commit (per segment — `cd wt && git commit`
-# must still be seen; audit A1 class)
+# Fast path: only check on git commit (`cd wt && git commit` is a real git
+# command in the argv model; audit A1 class). _first_effdir returns the effdir of
+# the first `git commit` command, or empty if there is none.
 $NEEDS_GIT_CHECK || exit 0
-echo "$GIT_SEGMENTS" | grep -qE '^git[[:space:]]+commit([[:space:]]|$)' || exit 0
+EFFDIR=$(_first_effdir commit)
+[ -n "$EFFDIR" ] || exit 0
 
 # Resolve against the checkout the commit targets — `git -C <path> commit` (R4).
-EFFDIR=$(_seg_effdir 'commit'); EFFDIR=$(_resolve_dir "${EFFDIR:-.}")
+EFFDIR=$(_resolve_dir "$EFFDIR")
 
 # Global deployment: only enforce where the letsbuild workflow is active.
 _fleet_active "$EFFDIR" || exit 0

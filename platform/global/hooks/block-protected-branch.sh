@@ -4,68 +4,72 @@
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/_parse-input.sh"
 
-# Fast path: no real git command segment (audit A1: `cd wt && git push`,
-# `VAR=1 git push`, `true; git push` must all reach the checks below — matching
-# happens per SEGMENT, never against the raw command).
+# Fast path: no real git command (audit A1: `cd wt && git push`, `VAR=1 git push`,
+# `true; git push` are all real git commands in the argv model — no `^git` anchor).
 $NEEDS_GIT_CHECK || exit 0
-echo "$GIT_SEGMENTS" | grep -qE '^git[[:space:]]+(commit|push|merge)([[:space:]]|$)' || exit 0
-
 source "$SCRIPT_DIR/_config.sh"
-PROT_ALT=$(echo "$PROTECTED_BRANCHES" | tr ' ' '|' | sed 's/|$//')
 
-# Each line is `EFFDIR<TAB>SEGMENT` — EFFDIR is the checkout the command writes
-# (`git -C <path> …`; PR #11 R4). Branch identity and fleet-shape are resolved AT
-# that directory, so `git -C ../main commit` from a feature worktree is judged by
-# ../main's branch, not the worktree's. Deployed globally, but "protected" means
-# the fleet's PR-based deploy branches — a personal trunk repo (no .claude/)
-# legitimately commits to main, so each segment self-gates on _fleet_shaped at
-# its EFFDIR, failing CLOSED even when active-work.md is emptied (audit A8).
-while IFS=$'\t' read -r effdir seg; do
-  [ -n "$seg" ] || continue
-  echo "$seg" | grep -qE '^git[[:space:]]+(commit|push|merge)([[:space:]]|$)' || continue
-  effdir=$(_resolve_dir "${effdir:-.}")
-  _fleet_shaped "$effdir" || continue
+# Each command carries its effective directory (CMD_EFFDIR — `git -C <path>`,
+# `cd <path> &&`, `--git-dir`/`--work-tree`; PR #11 R4/R5/R7). Branch identity and
+# fleet-shape are resolved AT that directory, so `git -C ../main commit` from a
+# feature worktree is judged by ../main's branch. "Protected" means the fleet's
+# PR-based deploy branches — a personal trunk repo (no .claude/) legitimately
+# commits to main, so each command self-gates on _fleet_shaped at its effdir,
+# failing CLOSED even when active-work.md is emptied (audit A8).
+_pb_check() {
+  [ "${CMD_ARGV[0]}" = git ] || return
+  local sub="${CMD_ARGV[1]}" effdir branch tok dst p
+  case "$sub" in commit|push|merge) ;; *) return ;; esac
 
-  BRANCH=$(git -C "$effdir" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+  effdir=$(_resolve_dir "${CMD_EFFDIR:-.}")
+  _fleet_shaped "$effdir" || return
+  branch=$(git -C "$effdir" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)
 
-  # Refspec check (push): a push can target a protected branch from ANY checked-out
-  # branch — `git push origin HEAD:staging`, `git push origin feat:master`,
-  # `git push origin master`, the fully-qualified `HEAD:refs/heads/staging`
-  # (audit A3), forced `+master`, and glob `refs/heads/*` (PR #11 R1) refspecs.
-  # Match a protected name at a refspec boundary (preceded by `:` or space, opt.
-  # `+`/`refs/heads/`) so `feature/staging-fix` does NOT false-positive.
-  if echo "$seg" | grep -qE '^git[[:space:]]+push([[:space:]]|$)'; then
-    if [ -n "$PROT_ALT" ] && echo "$seg" | grep -qE "(:|[[:space:]])\\+?(refs/heads/)?(${PROT_ALT})([[:space:]]|\$)"; then
-      echo "BLOCKED: push targets a protected branch (refspec → ${PROT_ALT})." >&2
-      echo "  Protected branches deploy via PR, not a direct push. Use 'gh pr create'." >&2
-      exit 2
-    fi
-    if echo "$seg" | grep -qE '(^|[[:space:]])[^-[:space:]][^[:space:]]*\*'; then
-      echo "BLOCKED: glob refspec on push can write protected branches. Push explicit branch names." >&2
-      exit 2
-    fi
+  # Refspec check (push): a push can target a protected branch from ANY branch —
+  # `git push origin master`, `HEAD:staging`, fully-qualified `HEAD:refs/heads/…`
+  # (audit A3), forced `+master` (A4), glob `refs/heads/*` (PR #11 R1). The dst of
+  # each non-flag operand is the part after the last `:`, minus a leading `+` and
+  # `refs/heads/` — so `feature/staging-fix` does NOT false-positive.
+  if [ "$sub" = push ]; then
+    for tok in "${CMD_ARGV[@]:2}"; do
+      case "$tok" in -*) continue ;; esac
+      case "$tok" in
+        *\**)
+          echo "BLOCKED: glob refspec on push can write protected branches. Push explicit branch names." >&2
+          exit 2 ;;
+      esac
+      dst="${tok##*:}"; dst="${dst#+}"; dst="${dst#refs/heads/}"
+      for p in $PROTECTED_BRANCHES; do
+        if [ "$dst" = "$p" ]; then
+          echo "BLOCKED: push targets a protected branch (refspec → $p)." >&2
+          echo "  Protected branches deploy via PR, not a direct push. Use 'gh pr create'." >&2
+          exit 2
+        fi
+      done
+    done
   fi
 
-  # Block commits AND pushes while STANDING on a protected branch. A bare
-  # `git push`/`git commit` names nothing, so gate on the effective branch.
-  for protected in $PROTECTED_BRANCHES; do
-    if [ "$BRANCH" = "$protected" ]; then
-      if echo "$seg" | grep -qE '^git[[:space:]]+commit([[:space:]]|$)'; then
-        echo "BLOCKED: Cannot commit on '$BRANCH'. Create a feature branch first." >&2
+  # Block commits AND pushes/merges while STANDING on a protected branch (a bare
+  # `git push`/`git commit` names nothing, so gate on the effective branch).
+  for p in $PROTECTED_BRANCHES; do
+    [ "$branch" = "$p" ] || continue
+    case "$sub" in
+      commit)
+        echo "BLOCKED: Cannot commit on '$branch'. Create a feature branch first." >&2
         echo "  git checkout -b ${FEATURE_PREFIX}your-description" >&2
-        exit 2
-      elif echo "$seg" | grep -qE '^git[[:space:]]+merge([[:space:]]|$)'; then
-        echo "BLOCKED: Cannot 'git merge' while on protected branch '$BRANCH' — that writes direct" >&2
+        exit 2 ;;
+      merge)
+        echo "BLOCKED: Cannot 'git merge' while on protected branch '$branch' — that writes direct" >&2
         echo "  protected-branch history. Promote via PR instead." >&2
-        exit 2
-      elif echo "$seg" | grep -qE '^git[[:space:]]+push([[:space:]]|$)'; then
-        echo "BLOCKED: Cannot 'git push' while on protected branch '$BRANCH'." >&2
+        exit 2 ;;
+      push)
+        echo "BLOCKED: Cannot 'git push' while on protected branch '$branch'." >&2
         echo "  Protected branches deploy via PR, not a direct push." >&2
         echo "  Switch to your feature branch, or open a PR with 'gh pr create'." >&2
-        exit 2
-      fi
-    fi
+        exit 2 ;;
+    esac
   done
-done <<< "$GIT_SEGMENTS_D"
+}
 
+_for_each_command _pb_check
 exit 0

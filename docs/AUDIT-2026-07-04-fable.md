@@ -50,6 +50,30 @@ CLAUDE.mds. The fix landed on origin; your machine never pulled it. **Merging �
 > write-then-run always win). The hard boundary is server-side branch protection +
 > agents-never-merge + the settings deny-list.
 
+> **REWRITE COMPLETE 2026-07-05 (branch `feature/mk-hook-tokenizer-rewrite`):** the
+> decided plan is executed. `hooks/_tokenize.pl` is the ONE shell-faithful tokenizer —
+> a quote-state lexer (`'…'`/`"…"`/`$'…'`/`$"…"`, adjacent-run concatenation),
+> simple-command splitting on unquoted `;`/`&&`/`||`/`|`/`&`/newline/`()`/`{}`/`$(`/
+> `` ` ``, full wrapper-chain resolution (env/sudo/xargs/command/nohup/time + opts,
+> `bash|sh|dash|zsh|ksh -c` and `env -S` RE-LEXED, control keywords, VAR= assignments,
+> `cd`, path-qualified/`\`/ANSI-C command words, `git -c alias.X=` expansion), and
+> cwd/`-C`/`--git-dir`/`--work-tree` effdir tracking. It emits a per-simple-command
+> block (`C`argv0/`D`effdir/`A`token/`R`redirect) that `_parse-input.sh` exposes via
+> `_for_each_command`. ALL SIX guards + the two commit guards now match on ARGV TOKENS,
+> never string regex — so the two-parser drift is STRUCTURALLY impossible (one parser
+> feeds git + writer surfaces) and A9 falls out for free (a quoted `-m` message is
+> exactly one token the guard skips). The old `_git_segments`/`_flatten_exec`/
+> `COMMAND_NOSTR`/`COMMAND_EXEC`/`_seg_effdir`/writer-lexer are DELETED. Both residuals
+> are CLOSED: (a) a spaced-and-quoted `-C "/a b"` context is now one token (fuzzer
+> F7); the only remaining documented residual is (b) arbitrary interpreters
+> (`python -c`), which is unparseable and belongs to FS-layer enforcement. Gates:
+> `hook-bypass-suite.sh` 194/194 green AND `hook-grammar-fuzz.sh` **CLEAN at 408 cases**
+> (extended with F5-writer×72 / F6-nested×12 / F7-spaced×3 + deeper command-word
+> splits). REMAINING (post-merge, Mike's call): sync to `~/.claude` via
+> `./setup-machine.sh`, confirm `--diff` clean, and run the fuzzer against the live
+> hooks (`HOOKS_DIR="$HOME/.claude/hooks"`) — live still runs the pre-audit porous
+> copies until then.
+
 > **STATUS 2026-07-04 (batch #2 executed):** A1–A11 + B1 all fixed in the canonical hooks.
 > Root cause across A1/A2/A3/A9/A10: guards matched the RAW command string — fixed by
 > quote-blanked per-segment matching in `_parse-input.sh` (`COMMAND_NOSTR`/`GIT_SEGMENTS`,
