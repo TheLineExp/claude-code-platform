@@ -61,19 +61,27 @@ _TOKENIZED=""
 # that line, incl. any `;`/`&&` continuation), queue the delimiter(s), and drop the
 # following body lines up to each closing delimiter. Handles `<<WORD`, `<<-WORD`
 # (tabs before close), `<< WORD`, quoted `<<'WORD'`/`<<"WORD"`, and multiple
-# heredocs on one line; leaves here-strings (`<<<`) and bit-shifts (`<< 2`) untouched.
+# heredocs on one line. CORRECTNESS-CRITICAL (each was a verified bypass, PR-review):
+#  - `(?<!<)<<(?!<)` so a here-string `<<<WORD` is NOT read as `<<`+`<WORD` (the `<<`
+#    would otherwise match the 2nd–3rd `<`, queue a phantom heredoc, and swallow every
+#    following real command). Also leaves bit-shifts (`<< 2`) untouched.
+#  - strip a trailing `\r` per line (CRLF): else the close `EOF\r` never matches the
+#    delimiter, the body never ends, and real trailing commands are dropped.
+#  - close is the delimiter ALONE — exact match (bash: column 0, no leading blanks for
+#    a non-dash heredoc; leading TABS only for `<<-`). A lax close re-exposes A9.
 _CMD_TOK=$(printf '%s' "$COMMAND" | perl -0777 -ne '
   my @lines = split /\n/, $_, -1;
   my (@out, @pending);
   for my $ln (@lines) {
+    $ln =~ s/\r$//;                                # tolerate CRLF on every line
     if (@pending) {
       my ($d, $dash) = @{$pending[0]};
       my $t = $ln; $t =~ s/^\t+// if $dash;        # <<- ignores leading TABS on the close
-      shift @pending if $t =~ /^[[:blank:]]*\Q$d\E[[:blank:]]*$/;
+      shift @pending if $t eq $d;                  # close = the delimiter ALONE (bash exact)
       next;                                         # body line — drop it
     }
     my $work = $ln;
-    while ($work =~ s/<<(-?)[[:blank:]]*(["\x27]?)([A-Za-z_]\w*)\2//) {
+    while ($work =~ s/(?<!<)<<(?!<)(-?)[[:blank:]]*(["\x27]?)([A-Za-z_]\w*)\2//) {
       push @pending, [$3, ($1 eq "-")];             # strip ONLY the operator; keep the tail
     }
     push @out, $work;

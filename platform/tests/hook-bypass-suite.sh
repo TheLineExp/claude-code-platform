@@ -170,6 +170,15 @@ block block-destructive-git.sh  "$FLEET_FEAT" $'git commit -F - <<EOF && git res
 block block-destructive-git.sh  "$FLEET_FEAT" $'git commit -F - <<EOF | git clean -fdx\nbody\nEOF'                  'heredoc: REAL clean after | on opener → block'
 block block-protected-branch.sh "$FLEET_FEAT" $'git commit -F - <<EOF & git push origin master\nbody\nEOF'          'heredoc: REAL protected push after & on opener → block'
 allow block-destructive-git.sh  "$FLEET_FEAT" $'git commit -F - <<A <<B\nbodyA has git push --force\nA\nbodyB git reset --hard\nB' 'heredoc: multiple heredocs, both bodies dropped → allow'
+# here-string `<<<WORD` must NOT be read as a heredoc (`<<` matching the 2nd-3rd `<`
+# would queue a phantom delimiter and swallow the real command after it → bypass).
+block block-destructive-git.sh  "$FLEET_FEAT" $'cat <<<EOF\ngit push --force origin main'                            'here-string <<<WORD: real force after → block'
+block block-protected-branch.sh "$FLEET_FEAT" $'cat <<<WORD\ngit push origin master'                                'here-string <<<WORD: real protected push after → block'
+block block-file-redirect.sh    "$FLEET_FEAT" $'cat <<<EOF\nsed -i s/a/b/ src/file.ts'                              'here-string <<<WORD: real writer after → block'
+# CRLF: the close line arrives as `EOF\r`; without \r-stripping the body never ends
+# and the real trailing command is dropped → bypass.
+block block-destructive-git.sh  "$FLEET_FEAT" $'git commit -F - <<EOF\r\nm\r\nEOF\r\ngit push -f origin main'       'heredoc CRLF: real force after close → block'
+allow block-destructive-git.sh  "$FLEET_FEAT" $'git commit -F - <<EOF\r\ngit push --force\r\nEOF\r'                 'heredoc CRLF: danger in body → allow'
 block "$H" "$FLEET_MASTER" 'git commit -m "x"'                           'commit while standing on master'
 block "$H" "$FLEET_MASTER" 'git push'                                    'bare push while standing on master'
 block "$H" "$FLEET_MASTER" 'git merge feature/w1-x'                      'merge while standing on master'
