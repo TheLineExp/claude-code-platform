@@ -101,6 +101,7 @@ WRITER_TARGETS=$(HOOK_CMD="$COMMAND_EXEC" perl -e '
     # lockstep with _parse-input.sh::_git_segments; the bypass suite carries
     # paired cases for both surfaces.
     while (@t) {
+      if ($t[0] =~ /^(?:if|then|elif|else|while|until|do|!)$/) { shift @t; next; }
       if ($t[0] =~ /^[A-Za-z_][A-Za-z0-9_]*=/) { shift @t; next; }
       if ($t[0] =~ /^(?:command|builtin|nohup|time)$/) {
         shift @t; shift @t while @t and $t[0] =~ /^-/; next;

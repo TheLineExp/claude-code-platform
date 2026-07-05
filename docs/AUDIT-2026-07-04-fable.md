@@ -63,6 +63,20 @@ CLAUDE.mds. The fix landed on origin; your machine never pulled it. **Merging �
 > directory (`git -C ../main commit` from a feature worktree is now judged by ../main's
 > branch and blocked). Incidental: the BSD-sed tab-strip for the pure-segment column
 > mismatched letter-bearing -C paths — switched to tab-aware `cut`. Suite: 167.
+> Codex round 5 (all real, all fixed + suite-covered): `bash|sh|dash|zsh|ksh -c "<cmd>"`
+> executes its payload — COMMAND_EXEC now flattens shell `-c` operands alongside `env -S`
+> (iterated, so nesting unwraps); leading shell control keywords (`if git … ; then`,
+> `while gh … ; do`) left the segment starting with `if`/`while` — both the segmenter and
+> the writer lexer now strip them; and `--git-dir`/`--work-tree` were treated as inert —
+> now captured as EFFDIR (git-dir → its parent checkout). Suite: 180.
+>
+> **RESIDUALS (documented, not fixed — regex shell-parsing is inherently leaky):** (a) an
+> alternate-context path that both contains spaces AND is quoted (`git -C "/a b" commit`)
+> — the space defeats the `\S+` path token after A9 quote-blanking; (b) arbitrary
+> interpreters that write files (`python -c "open(...,'w')"`). Both are contrived for an
+> agent to emit accidentally. These hooks are GUARDRAILS (defense-in-depth); the hard
+> backstop for the dangerous ops is the settings.json deny-list (B1) + branch protection.
+> The bypass suite is the regression gate — extend it, don't reason from diffs.
 
 | # | Sev | File | Bypass (verified) | Fix |
 |---|---|---|---|---|

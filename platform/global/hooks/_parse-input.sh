@@ -27,18 +27,30 @@ FILE_PATH=$(echo "$INPUT" | sed -n 's/.*"file_path"[[:space:]]*:[[:space:]]*"\([
 # `cd wt && git push` slip through (A1), while grepping the whole string blocks
 # innocent commands whose -m/-F/echo arguments merely CONTAIN a flag literal (A9).
 #
-# COMMAND_EXEC first flattens `env -S "<cmd string>"` / `--split-string`: env's
-# -S splits that single operand into a command line and EXECUTES it (PR #11 R4),
-# so the operand IS the command the guards must see. We inline the dequoted
-# operand in place of the whole `env … -S <operand>` run. (A false match inside
-# an echo argument is harmless — it stays a non-git word after normalization.)
-COMMAND_EXEC=$(printf '%s' "$COMMAND" | perl -0777 -pe '
-  s{\benv\b[^"\x27|;&\n]*?(?:-S|--split-string)(?:=|\s+)?("(?:[^"\\]|\\.)*"|\x27[^\x27]*\x27|\S+)}{
-    my $o = $1;
-    if ($o =~ /^"(.*)"$/s) { $o = $1; $o =~ s/\\(.)/$1/g; }
-    elsif ($o =~ /^\x27(.*)\x27$/s) { $o = $1; }
-    $o
-  }ge' 2>/dev/null)
+# COMMAND_EXEC flattens command-string operands that the shell EXECUTES, so the
+# guards analyze the real command, not an opaque quoted blob that blanking would
+# erase (PR #11 R4/R5): `env -S "<cmd>"` / `--split-string`, and
+# `bash|sh|dash|zsh|ksh -c "<cmd>"`. The dequoted operand replaces the whole
+# wrapper run. (A false match inside an echo argument is harmless — it stays a
+# non-git word after normalization.) Iterated so a nested `bash -c "env -S …"`
+# unwraps fully.
+_flatten_exec() {
+  perl -0777 -pe '
+    my $n = 0;
+    1 while $n++ < 8 && s{
+      (?: \benv\b[^"\x27|;&\n]*?(?:-S|--split-string)(?:=|\s+)?
+        | \b(?:bash|sh|dash|zsh|ksh)\b[^"\x27|;&\n]*?-[a-zA-Z]*c(?:\s+)
+      )
+      ("(?:[^"\\]|\\.)*"|\x27[^\x27]*\x27|\S+)
+    }{
+      my $o = $1;
+      if ($o =~ /^"(.*)"$/s) { $o = $1; $o =~ s/\\(.)/$1/g; }
+      elsif ($o =~ /^\x27(.*)\x27$/s) { $o = $1; }
+      $o
+    }gex;
+  ' 2>/dev/null
+}
+COMMAND_EXEC=$(printf '%s' "$COMMAND" | _flatten_exec)
 [ -n "$COMMAND_EXEC" ] || COMMAND_EXEC="$COMMAND"
 
 # COMMAND_NOSTR is COMMAND_EXEC with quoted strings NORMALIZED: a quoted string
@@ -74,6 +86,9 @@ _git_segments() {
       my $again = 1;
       while ($again) {
         $again = 0;
+        # Leading shell control keywords (`if git …; then`, `while gh …; do`)
+        # still execute the command that follows (PR #11 R5).
+        $again = 1 if $seg =~ s/^(?:if|then|elif|else|while|until|do|!)\s+//;
         $again = 1 if $seg =~ s/^[A-Za-z_][A-Za-z0-9_]*=\S*\s+//;
         $again = 1 if $seg =~ s/^(?:command|builtin|nohup|time)\s+(?:-\S+\s+)*//;
         $again = 1 if $seg =~ s/^sudo\s+(?:-[ugUTRDChp]\s+\S+\s+|-\S+\s+)*//;
@@ -87,10 +102,14 @@ _git_segments() {
       $again = 1;
       while ($again) {
         $again = 0;
-        # -C <path> / -C=<path> sets the effective directory (case-sensitive: -c
-        # is config key=value, NOT a directory).
-        if ($seg =~ s/^(git|gh)\s+-C(?:=|\s+)(\S+)\s+/$1 /) { $dir = $2; $again = 1; next; }
-        $again = 1 if $seg =~ s/^(git|gh)\s+(?:-c\s+\S+|-R\s+\S+|--(?:repo|git-dir|work-tree|namespace|exec-path)(?:=\S+|\s+\S+)?|--no-pager|--paginate|--bare|--literal-pathspecs)\s+/$1 /;
+        # Alternate-context global options set the effective checkout (PR #11
+        # R4/R5): -C <path> is a directory; --work-tree <path> is the tree;
+        # --git-dir <path> is the .git, whose parent is the checkout. (-c is
+        # config key=value, NOT a directory — case-sensitive.)
+        if ($seg =~ s/^(git|gh)\s+-C(?:=|\s+)(\S+)\s+/$1 /)            { $dir = $2; $again = 1; next; }
+        if ($seg =~ s/^(git|gh)\s+--work-tree(?:=|\s+)(\S+)\s+/$1 /)   { $dir = $2; $again = 1; next; }
+        if ($seg =~ s/^(git|gh)\s+--git-dir(?:=|\s+)(\S+)\s+/$1 /)     { my $g = $2; $g =~ s{/\.git/?$}{}; $dir = ($g eq "" ? "/" : $g); $again = 1; next; }
+        $again = 1 if $seg =~ s/^(git|gh)\s+(?:-c\s+\S+|-R\s+\S+|--(?:repo|namespace|exec-path)(?:=\S+|\s+\S+)?|--no-pager|--paginate|--bare|--literal-pathspecs)\s+/$1 /;
       }
       print "$dir\t$seg\n";
     }' 2>/dev/null
