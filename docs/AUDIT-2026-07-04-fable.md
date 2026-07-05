@@ -33,9 +33,18 @@ CLAUDE.mds. The fix landed on origin; your machine never pulled it. **Merging �
 > (`block-file-redirect` ANSI-C `$'cp'` + brace-group `{ cp …; }`) — proving the real defect
 > is TWO hand-maintained parsers (git-side `_git_segments` vs. writer-side lexer) that DRIFT.
 > (2) NEXT: replace both with ONE shell-faithful tokenizer feeding all guards off an argv
-> model (parity becomes structural; A9 falls out for free). The 6 leaks are deliberately NOT
-> patched — patching them is the mistake. Regression gates for the rewrite: curated
-> `hook-bypass-suite.sh` (194) stays green AND `hook-grammar-fuzz.sh` reaches CLEAN.
+> model (parity becomes structural; A9 falls out for free). DECISION (Mike): one **Perl
+> module** (e.g. `hooks/_tokenize.pl`) that reads the command and emits, per simple-command,
+> a normalized record `{effdir, argv[]}` — quote-state lexer honoring `'…'`/`"…"`/`$'…'`/
+> `$"…"`; split into simple-commands on unquoted `;`/`&&`/`||`/`|`/`&`/newline/`()`/`{}`;
+> resolve the wrapper chain (env/sudo/xargs/command/nohup/time + their opts, `bash -c`/
+> `sh -c`, control keywords, VAR= assignments, `cd`, path-qualified/`\`/ANSI-C command word,
+> `git -c alias.X=`); track cwd via `cd` and `-C`/`--git-dir`/`--work-tree`. Bash guards
+> source it, then match on ARGV TOKENS (not string regex): e.g. no-verify = argv has a
+> `--no-verify`/`-n`-cluster token on a `git commit`; writer = argv[0]∈{cp,mv,sed -i,dd,
+> sponge} with an in-repo dest. The 6 leaks are deliberately NOT patched — patching them is
+> the mistake. Regression gates for the rewrite: curated `hook-bypass-suite.sh` (194) stays
+> green AND `hook-grammar-fuzz.sh` reaches CLEAN (extend the fuzzer grammar too).
 > THREAT MODEL (write it down): these are GUARDRAILS vs. an agent's accidental/obvious
 > mistakes, NOT a sandbox — shell is Turing-complete (`eval`, `base64|sh`, `python -c`,
 > write-then-run always win). The hard boundary is server-side branch protection +
