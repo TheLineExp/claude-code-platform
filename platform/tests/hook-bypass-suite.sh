@@ -125,6 +125,8 @@ block "$H" "$FLEET_FEAT" 'git -C . push origin master'                   'A1-cla
 block "$H" "$FLEET_FEAT" 'echo $(git push origin master)'                'R2: inside command substitution'
 block "$H" "$FLEET_FEAT" 'sudo -u root git push origin master'           'R2: sudo with options'
 block "$H" "$FLEET_FEAT" 'echo x | xargs git push origin master'         'R2: xargs wrapper'
+block "$H" "$FLEET_FEAT" '/usr/bin/git push origin master'               'R3: path-qualified git'
+block "$H" "$FLEET_FEAT" '\git push origin master'                       'R3-class: backslash alias-bypass'
 block "$H" "$FLEET_FEAT" 'git push origin HEAD:staging'                  'baseline: HEAD:staging'
 block "$H" "$FLEET_FEAT" 'git push origin HEAD:refs/heads/staging'       'A3: fully-qualified refspec'
 block "$H" "$FLEET_FEAT" 'git push origin refs/heads/master'             'A3: fully-qualified source-less'
@@ -163,6 +165,8 @@ block "$H" "$FLEET_FEAT" 'env -i git commit --no-verify -m "x"'          'R2: en
 block "$H" "$FLEET_FEAT" 'env -u GIT_DIR git commit -n -m "x"'           'R2: env -u NAME wrapper'
 block "$H" "$FLEET_FEAT" '(git commit -n -m "x")'                        'R2: subshell parens'
 block "$H" "$FLEET_FEAT" 'git commit -nm "x"'                            'R2-adjacent: n before m in cluster'
+block "$H" "$FLEET_FEAT" '/opt/homebrew/bin/git commit --no-verify -m "x"' 'R3: path-qualified git'
+block "$H" "$FLEET_FEAT" 'git commit --gpg-sign --no-verify -m "x"'      'R3: bare --gpg-sign must not eat the next flag'
 allow "$H" "$FLEET_FEAT" 'git commit -am "x"'                            'FP guard: -am has no n'
 allow "$H" "$FLEET_FEAT" 'git commit -m "document --no-verify usage"'    'A9: flag literal inside -m'
 allow "$H" "$FLEET_FEAT" 'grep -rn -- --no-verify hooks/'                'A9: flag literal in grep'
@@ -173,6 +177,9 @@ allow "$H" "$FLEET_FEAT" 'git commit -m "-n"'                            'R2-P2:
 allow "$H" "$FLEET_FEAT" 'git commit -m "-n" -a'                         'R2-P2: message operand then real flag'
 allow "$H" "$FLEET_FEAT" 'git commit -mn'                                'R2-P2: cluster value — message is n'
 allow "$H" "$FLEET_FEAT" 'git commit --fixup HEAD~1 -m "x"'              'R2-P2: value-taking long opt operand'
+allow "$H" "$FLEET_FEAT" 'git commit --gpg-sign -m "x"'                  'R3: bare --gpg-sign commit is fine'
+allow "$H" "$FLEET_FEAT" 'git commit -S -m "x"'                          'R3: -S sign flag is fine'
+allow "$H" "$FLEET_FEAT" 'git commit -Sn -m "x"'                         'R3: -Sn is keyid n, not no-verify'
 
 # ---------------------------------------------------------------------------
 # block-destructive-git.sh — A4 (+refspec), A5 (--h prefix), A6 (dot variants), A9
@@ -220,6 +227,7 @@ allow "$H" "$FLEET_FEAT" 'git commit -m "block git push --force bypass"' 'A9: fo
 # ---------------------------------------------------------------------------
 H=block-gh-merge.sh
 block "$H" "$FLEET_FEAT" 'gh pr merge 5'                                 'baseline: merge by number'
+block "$H" "$FLEET_FEAT" '/usr/bin/gh pr merge 5'                        'R3: path-qualified gh'
 block "$H" "$FLEET_FEAT" 'gh pr merge'                                   'bare merge (block-all)'
 block "$H" "$FLEET_FEAT" 'gh pr merge --admin 5'                         'merge --admin'
 block "$H" "$FLEET_FEAT" 'cd x && gh pr merge 5'                         'A1-class prefix'
@@ -261,6 +269,10 @@ block "$H" "$FLEET_FEAT" 'cp -tsrc /tmp/x'                               'PR11-P
 block "$H" "$FLEET_FEAT" 'mv --target-directory=src /tmp/x'              'PR11-P2: mv --target-directory='
 block "$H" "$FLEET_FEAT" 'cp --target-directory src /tmp/x'              'PR11-P2: cp --target-directory DIR'
 allow "$H" "$FLEET_FEAT" 'cp -t /tmp src/file.ts'                        'PR11-P2: -t OUTSIDE repo allowed'
+block "$H" "$FLEET_FEAT" 'env -i cp /tmp/x src/file.ts'                  'R3: env -i before writer'
+block "$H" "$FLEET_FEAT" 'env -u FOO mv /tmp/x src/file.ts'              'R3: env -u NAME before writer'
+block "$H" "$FLEET_FEAT" 'sudo -u root cp /tmp/x src/file.ts'            'R3-class: sudo -u before writer'
+block "$H" "$FLEET_FEAT" '/bin/cp /tmp/x src/file.ts'                    'R3-class: path-qualified writer'
 allow "$H" "$FLEET_FEAT" 'cp src/file.ts /tmp/out.ts'                    'allowed: copy OUT of repo'
 allow "$H" "$FLEET_FEAT" 'mv src/file.ts /tmp/out.ts'                    'allowed: move OUT of repo (read+delete, not write)'
 allow "$H" "$FLEET_FEAT" "sed -i 's/1/2/' /tmp/outside.txt"              'allowed: sed -i outside repo'

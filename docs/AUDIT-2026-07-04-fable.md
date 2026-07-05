@@ -46,6 +46,12 @@ CLAUDE.mds. The fix landed on origin; your machine never pulled it. **Merging �
 > their options incl. arg-taking flags; and `git commit -m "-n"` false-blocked — the -n
 > scan now walks tokens like git's parser, skipping operands of value-taking options
 > (`-mn` = message "n" allowed; `-nm x` = no-verify blocked).
+> Codex round 3 (all real, all fixed + suite-covered): path-qualified `/usr/bin/git` (and
+> `\git` alias-bypass) produced no segments — first token is now basename/backslash
+> normalized; bare `--gpg-sign` wrongly consumed the next token (it takes an ATTACHED
+> optional arg only) — removed from the operand-skip list, `-S`/`-Sn` cluster handling
+> added; and the block-file-redirect writer lexer had the R2 wrapper-options gap on its
+> TWIN surface — now in lockstep, with paired suite cases enforcing parity. Suite: 151.
 
 | # | Sev | File | Bypass (verified) | Fix |
 |---|---|---|---|---|

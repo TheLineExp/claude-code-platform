@@ -65,6 +65,10 @@ _git_segments() {
         $again = 1 if $seg =~ s/^env\s+(?:(?:-[uCS]|--unset|--chdir)\s+\S+\s+|-\S+\s+|[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*//;
         $again = 1 if $seg =~ s/^xargs\s+(?:-[IiEeLlnPsda]\s+\S+\s+|-\S+\s+)*//;
       }
+      # Path-qualified and alias-bypass invocations still run git: normalize
+      # `/usr/bin/git …` and `\git …` to `git …` (PR #11 R3).
+      $seg =~ s/^\\+//;
+      $seg =~ s{^\S*/(git|gh)(?=\s|$)}{$1};
       next unless $seg =~ /^(?:git|gh)(?:\s|$)/;
       1 while $seg =~ s/^(git|gh)\s+(?:-[Cc]\s+\S+|-R\s+\S+|--(?:repo|git-dir|work-tree|namespace|exec-path)(?:=\S+|\s+\S+)?|--no-pager|--paginate|--bare|--literal-pathspecs)\s+/$1 /;
       print "$seg\n";

@@ -94,9 +94,36 @@ WRITER_TARGETS=$(HOOK_CMD="$COMMAND" perl -e '
   push @segs, [@cur];
   for my $seg (@segs) {
     my @t = grep { $_ ne "" } @$seg;
-    while (@t and ($t[0] =~ /^[A-Za-z_][A-Za-z0-9_]*=/ or $t[0] =~ /^(sudo|command|builtin|nohup|time|env)$/)) { shift @t; }
+    # Wrapper stripping MUST consume wrapper OPTIONS too (`env -i cp …`,
+    # `sudo -u root mv …` still run the writer — PR #11 R3). Keep this in
+    # lockstep with _parse-input.sh::_git_segments; the bypass suite carries
+    # paired cases for both surfaces.
+    while (@t) {
+      if ($t[0] =~ /^[A-Za-z_][A-Za-z0-9_]*=/) { shift @t; next; }
+      if ($t[0] =~ /^(?:command|builtin|nohup|time)$/) {
+        shift @t; shift @t while @t and $t[0] =~ /^-/; next;
+      }
+      if ($t[0] eq "sudo") {
+        shift @t;
+        while (@t and $t[0] =~ /^-/) { my $f = shift @t; shift @t if @t and $f =~ /^-[ugUTRDChp]$/; }
+        next;
+      }
+      if ($t[0] eq "env") {
+        shift @t;
+        while (@t and ($t[0] =~ /^-/ or $t[0] =~ /^[A-Za-z_][A-Za-z0-9_]*=/)) {
+          my $f = shift @t; shift @t if @t and ($f =~ /^-[uCS]$/ or $f eq "--unset" or $f eq "--chdir");
+        }
+        next;
+      }
+      if ($t[0] eq "xargs") {
+        shift @t;
+        while (@t and $t[0] =~ /^-/) { my $f = shift @t; shift @t if @t and $f =~ /^-[IiEeLlnPsda]$/; }
+        next;
+      }
+      last;
+    }
     next unless @t;
-    my $cmd = shift @t; $cmd =~ s{.*/}{};
+    my $cmd = shift @t; $cmd =~ s{.*/}{}; $cmd =~ s/^\\+//;
     if ($cmd eq "sed") {
       next unless grep { /^-i/ or /^--in-place/ } @t;
       for my $a (@t) { print "sed\t$a\n" unless $a =~ /^-/; }

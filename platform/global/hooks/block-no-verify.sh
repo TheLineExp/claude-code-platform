@@ -27,8 +27,12 @@ _commit_no_verify() (
       git|commit) continue ;;
       --) break ;;
       --no-veri|--no-verif|--no-verify) return 0 ;;
-      -m|-F|-C|-c|-t|--message|--file|--author|--date|--template|--fixup|--squash|--reuse-message|--reedit-message|--trailer|--cleanup|--pathspec-from-file|--gpg-sign)
+      -m|-F|-C|-c|-t|--message|--file|--author|--date|--template|--fixup|--squash|--reuse-message|--reedit-message|--trailer|--cleanup|--pathspec-from-file)
         skip=true ;;
+      # NOT value-taking as a separate operand: --gpg-sign/-S take an OPTIONAL
+      # arg that must be ATTACHED (--gpg-sign=<key>, -S<key>), so a bare
+      # --gpg-sign never consumes the next token (PR #11 R3 —
+      # `--gpg-sign --no-verify` must still block).
       --*) continue ;;
       -?*)
         cluster="${tok#-}"; i=0
@@ -36,6 +40,7 @@ _commit_no_verify() (
           ch="${cluster:$i:1}"
           case "$ch" in
             n) return 0 ;;
+            S) break ;;   # optional ATTACHED value: rest of cluster is the keyid
             m|F|C|c|t)
               [ "$((i+1))" -ge "${#cluster}" ] && skip=true
               break ;;
