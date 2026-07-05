@@ -24,7 +24,10 @@ generated FROM this repo — see docs/AUDIT-2026-07-02.md for why.
     `*.sh` + `*.pl`, and without it the guards fail OPEN.
     **Any hook edit must run `platform/tests/hook-bypass-suite.sh` (194) AND
     `platform/tests/hook-grammar-fuzz.sh` (CLEAN) before AND after — canonical and live.**
-  - `backlog-gate.js` (PreToolUse hook), `statusline-command.sh`
+  - `backlog-gate.js` (PreToolUse hook), `session-guard.js` (UserPromptSubmit),
+    `check-fix-landed.sh` (PostToolUse advisory: after a git commit/push, loudly flags an
+    ORPHANED fix — pushed to an already-merged/closed PR branch, or no PR — so a fix can't
+    silently miss deploy; never blocks), `statusline-command.sh`
   - `claude-CLAUDE.template.md` → `~/.claude/CLAUDE.md`; `claude-settings.template.json` → `~/.claude/settings.json`
   - `graphify-autoquery.js` — retired from deployment; kept in repo only
 - `setup-machine.sh` — the ONLY writer of `~/.claude`. Default = sync (with backup); `--diff` = report drift, no writes

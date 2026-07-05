@@ -151,6 +151,14 @@
           { "type": "command", "command": "bash ~/.claude/hooks/enforce-worktree.sh" }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "bash ~/.claude/hooks/check-fix-landed.sh" }
+        ]
+      }
     ]
   },
   "statusLine": {

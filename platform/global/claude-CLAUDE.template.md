@@ -67,6 +67,11 @@ sizing at letsbuild Phase 0.5, `/doctrine ship-gate` backstop inside `/shipit`,
   `gh pr checks <n>` all green AND zero unresolved review threads (thread query recipe in
   shipit Step 5b). A stale "ready" report is a defect.
 - "Deploy healthy" ≠ "behavior verified." Verify the actual behavior the task was about.
+- **A fix isn't done until it's on the path to deploy.** The `check-fix-landed` hook fires
+  after every commit/push and will LOUDLY flag an orphan (pushed to an already-merged/closed
+  PR branch, or no PR). If you see that 🚨, the fix is NOT landed — open a new PR to carry it;
+  never treat the original commit as shipped. (This is why a fix pushed just after its PR
+  merged, or committed but never pushed, silently missed deploy before.)
 - Before building anything described as missing/broken, check `git log`/closed PRs first —
   it may be a regression of shipped work; find what regressed instead of rebuilding.
 
