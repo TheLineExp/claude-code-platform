@@ -203,9 +203,10 @@ if [ "$DIFF_MODE" -eq 1 ]; then
     done < <(find "$CLAUDE_HOME/agents" -maxdepth 1 -type f -name "*.md" -print0)
   fi
 
-  # Guard hooks mirror (*.sh)
+  # Guard hooks mirror (*.sh + *.pl — the .sh guards AND their _tokenize.pl
+  # dependency; the .js hooks are synced separately by explicit path)
   say "  ${BLUE}Guard hooks:${NC}"
-  for canonical_hook in "$GLOBAL_SRC/hooks"/*.sh; do
+  for canonical_hook in "$GLOBAL_SRC/hooks"/*.sh "$GLOBAL_SRC/hooks"/*.pl; do
     [ -f "$canonical_hook" ] || continue
     name="$(basename "$canonical_hook")"
     diff_file "$canonical_hook" "$CLAUDE_HOME/hooks/$name" "hooks/$name"
@@ -217,7 +218,7 @@ if [ "$DIFF_MODE" -eq 1 ]; then
         stray "STRAY    hooks/$name"
         DRIFT=1
       fi
-    done < <(find "$CLAUDE_HOME/hooks" -maxdepth 1 -type f -name "*.sh" -print0)
+    done < <(find "$CLAUDE_HOME/hooks" -maxdepth 1 -type f \( -name "*.sh" -o -name "*.pl" \) -print0)
   fi
 
   say ""
@@ -364,12 +365,14 @@ if [ -d "$CLAUDE_HOME/agents" ]; then
 fi
 
 say ""
-say "${BLUE}=== Guard hooks (mirror: *.sh) ===${NC}"
+say "${BLUE}=== Guard hooks (mirror: *.sh + *.pl) ===${NC}"
 
 # Mirror the git-safety guard hooks GLOBALLY. They now fire for every session via
 # ~/.claude/settings.json instead of being copied into each repo (kills per-repo drift).
-# Scoped to *.sh so backlog-gate.js (synced separately) is untouched.
-for canonical_hook in "$GLOBAL_SRC/hooks"/*.sh; do
+# Scoped to *.sh (the guards) AND *.pl (their _tokenize.pl dependency, which every
+# guard sources via _parse-input.sh — omitting it makes the guards fail OPEN). The
+# .js hooks (backlog-gate.js, session-guard.js) are synced separately by path.
+for canonical_hook in "$GLOBAL_SRC/hooks"/*.sh "$GLOBAL_SRC/hooks"/*.pl; do
   [ -f "$canonical_hook" ] || continue
   name="$(basename "$canonical_hook")"
   live_hook="$CLAUDE_HOME/hooks/$name"
@@ -377,7 +380,7 @@ for canonical_hook in "$GLOBAL_SRC/hooks"/*.sh; do
   chmod +x "$live_hook" 2>/dev/null || true
 done
 
-# Remove stray *.sh hooks (in live but not in canonical)
+# Remove stray *.sh/*.pl hooks (in live but not in canonical)
 if [ -d "$CLAUDE_HOME/hooks" ]; then
   while IFS= read -r -d '' live_hook; do
     name="$(basename "$live_hook")"
@@ -387,7 +390,7 @@ if [ -d "$CLAUDE_HOME/hooks" ]; then
       removed "hooks/$name  (stray — not in canonical)"
       REMOVED_COUNT=$((REMOVED_COUNT + 1))
     fi
-  done < <(find "$CLAUDE_HOME/hooks" -maxdepth 1 -type f -name "*.sh" -print0)
+  done < <(find "$CLAUDE_HOME/hooks" -maxdepth 1 -type f \( -name "*.sh" -o -name "*.pl" \) -print0)
 fi
 
 say ""
