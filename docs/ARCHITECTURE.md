@@ -62,7 +62,7 @@ Full descriptions: [SKILLS_REFERENCE.md](SKILLS_REFERENCE.md).
 
 - **Default mode** — syncs `platform/global/` into `~/.claude`, backing up anything it
   overwrites to `~/.claude/backups/<timestamp>/`. It mirrors: the CLAUDE.md + settings.json
-  templates (plain copy, no substitution); the 9 skills and 3 agents; the guard hooks —
+  templates (plain copy, no substitution); the 9 skills and 5 agents; the guard hooks —
   every `*.sh` **and** `_tokenize.pl` (the shared tokenizer every guard sources; a `*.sh`-only
   mirror would leave the guards fail-open); the `backlog-gate.js` + `session-guard.js` hooks
   and `statusline-command.sh`; and a `~/.claude/backlog-location` pointer to this repo's
@@ -78,9 +78,10 @@ port it into `platform/global/` if wanted, then re-sync.
 
 | Phase | Pathway | Gates |
 |-------|---------|-------|
-| Start | `/letsbuild` | Worktree + branch + registration; **doctrine plan-gate** at Phase 0 |
-| Ship | `/shipit` | Staging PR → prod PR. `parity-sweep` + `money-concurrency-reviewer` agent passes; doctrine ship backstop; **PR-Ready gate** — checks green + 0 unresolved review threads before any "ready" claim; **prod-promotion gate** — staging must be converged first; session rotation after ship |
-| Review | built-in `/code-review` + the 3 agents | — |
+| Start | `/letsbuild` | **doctrine plan-gate** at Phase 0; **project-evaluator agent** at Phase 0.5 sizes EVERY project — SOLO continues here; ≥3-PR (or 2-PR long-context) diverts to `/pm` by DEFAULT (this window = M at low context, dev windows execute chunks); then worktree + branch + registration |
+| Orchestrate | `/pm` (auto-entered from letsbuild Phase 0.5, or manual) | Master plan → chunk briefs → dev windows (each runs `/letsbuild` + `/shipit`); M verifies merges, runs milestone reviews, keeps context low (context-discipline rules in the M prompt) |
+| Ship | `/shipit` | Staging PR → prod PR. `parity-sweep` + `money-concurrency-reviewer` agent passes; doctrine ship backstop; **outside-lens review (Step 4b, every ship)** — context-isolated `outside-reviewer` agent must PASS before push, re-run on every fix round; **PR-Ready gate** — checks green + 0 unresolved review threads before any "ready" claim; **prod-promotion gate** — staging must be converged first; session rotation after ship |
+| Review | built-in `/code-review` + the 5 agents | — |
 | Backlog | `/todo` (small) / `/feature` (large) | `backlog-gate` hook confirms every add |
 
 Retired pathways: `gstack-ship`, `gstack-review`.

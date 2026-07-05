@@ -40,7 +40,8 @@ and 3b (test-runner scenarios) are **required for feature / UI / multi-file PRs*
 size.** It is required — never skippable — for any payment/refund/voucher, state-transition,
 shared-helper, auth-gate, or concurrency change, *including backend-only one-liners*, because
 that is exactly where the recurring multi-round bugs live. The mandatory-every-ship steps are:
-local code review + Step 1b where it applies (above), changelog entry (Step 3), commit, and PR
+local code review + Step 1b where it applies (above), changelog entry (Step 3), commit,
+**outside-lens review (Step 4b — context-isolated, every ship, no size exemption)**, and PR
 creation. The Actions reviewer is an opt-in safety-net, not a gate.
 
 ## Repo Detection
@@ -158,9 +159,10 @@ fallback if agents are unavailable). Optionally use graphify for reverse blast r
 graph is fresher than HEAD (`graphify update . --force` is free).
 
 **RE-REVIEW RULE (fix-the-fix killer):** every time you address review findings (yours,
-Codex's, or Mike's), re-run BOTH agents on the NEW HEAD before pushing the fix round.
-Historical data: review-response commits regularly introduce new P1s (one fix PR took 8
-external review rounds). A fix round is a new diff and gets the full gate.
+Codex's, or Mike's), re-run BOTH agents on the NEW HEAD before pushing the fix round —
+AND re-run **`outside-reviewer`** (Step 4b) on the fix commits: every Codex round today
+receives unreviewed fix commits, which is exactly how one fix PR took 8 external review
+rounds. A fix round is a new diff and gets the full gate before it leaves the machine.
 
 **Part 1 — Parity sweep (cross-site consistency).** For each symbol/route/flag/derived-value/guard/contract in the diff:
 ```bash
@@ -364,6 +366,32 @@ EOF
 - `style:` - CSS/styling changes
 - `docs:` - Documentation
 - `chore:` - Maintenance tasks
+
+### Step 4b: Outside-Lens Review (MANDATORY, every ship — after commit, BEFORE push)
+
+The reviews so far ran in YOUR context — the same mental model that wrote the code. Codex's
+edge is that it has none of that context; this step gives you the same edge locally, so
+Codex converges in ≤1 round instead of 4–8.
+
+Spawn the **`outside-reviewer` agent** on the final commit. **Context isolation is the
+mechanism — give it ONLY what an external reviewer sees:**
+- the branch + base (it runs `git diff origin/staging...HEAD` itself),
+- the PR title/description you're about to use (the spec, as an outsider reads it),
+- NOTHING about how the change was developed, what you already checked, or what you believe
+  is safe. Do not defend findings by citing session context the reviewer can't see — if the
+  code doesn't prove it, Codex would flag it too.
+
+Then:
+1. **PASS** (all 7 families checked-clean) → proceed to Step 5.
+2. **FINDINGS** → fix every P1 (P2s: fix or carry a written rationale into the PR
+   description), commit, and **re-run the agent on the new HEAD** — fix rounds introduce
+   new bugs (the fix-the-fix pattern: one fix PR took 8 external rounds).
+3. Cap: if findings persist after 2 fix rounds, STOP — do not push. Surface the remaining
+   findings to Mike; repeated non-convergence means the change needs a rethink, not a
+   round 3 (doctrine rule 3).
+
+The scoped agents (Step 1b) still run per their triggers — outside-reviewer is the
+general-diff layer covering every ship, including the diffs Step 1b doesn't gate.
 
 ### Step 5: Push Feature Branch and Create Staging PR
 

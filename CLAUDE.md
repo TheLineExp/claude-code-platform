@@ -7,7 +7,9 @@ generated FROM this repo — see docs/AUDIT-2026-07-02.md for why.
 
 - `platform/global/` — canonical layer synced to `~/.claude`:
   - `skills/` — 9 skills (doctrine, feature, graphify, letsbuild, pm, route, shipit, todo, traceability-review)
-  - `agents/` — parity-sweep, money-concurrency-reviewer, traceability-reviewer
+  - `agents/` — parity-sweep, money-concurrency-reviewer, traceability-reviewer,
+    project-evaluator (letsbuild Phase 0.5 sizing gate: every project SOLO vs /pm-default),
+    outside-reviewer (shipit Step 4b context-isolated pre-push review, every ship)
   - `hooks/` — the git-safety guard hooks (block-*, check-*, enforce-worktree, deps
     `_parse-input.sh`/`_config.sh`/`_tokenize.pl`). GLOBAL: they fire for every session via
     `~/.claude/settings.json`, not per-repo. Universal guards (no-verify, destructive-git,
