@@ -133,6 +133,16 @@ if [ "$DIFF_MODE" -eq 1 ]; then
     diff_file "$src" "$live" "$label"
   done
 
+  # Generated backlog-location pointer (content = this repo's backlog/ path)
+  want_backlog="$SCRIPT_DIR/backlog"
+  if [ ! -f "$CLAUDE_HOME/backlog-location" ]; then
+    say "  ${YELLOW}[MISSING]${NC} backlog-location"; DRIFT=1
+  elif [ "$(cat "$CLAUDE_HOME/backlog-location" 2>/dev/null)" != "$want_backlog" ]; then
+    say "  ${YELLOW}[DIFFERS]${NC} backlog-location"; DRIFT=1
+  else
+    say "  ${GREEN}[OK]${NC} backlog-location"
+  fi
+
   # Retired file that must NOT exist
   RETIRED="$CLAUDE_HOME/hooks/graphify-autoquery.js"
   if [ -e "$RETIRED" ]; then
@@ -391,6 +401,27 @@ if [ -d "$CLAUDE_HOME/hooks" ]; then
       REMOVED_COUNT=$((REMOVED_COUNT + 1))
     fi
   done < <(find "$CLAUDE_HOME/hooks" -maxdepth 1 -type f \( -name "*.sh" -o -name "*.pl" \) -print0)
+fi
+
+# ── backlog-location pointer ──────────────────────────────────────────────────
+# /todo and /feature read ~/.claude/backlog-location — a one-line file holding the
+# absolute path to this machine's backlog dir (the backlog/ dir in THIS repo). Write
+# it so the skills' primary lookup works; without it they fall back to scanning
+# additionalDirectories every time.
+say "${BLUE}=== Backlog pointer ===${NC}"
+BACKLOG_DIR="$SCRIPT_DIR/backlog"
+BACKLOG_PTR="$CLAUDE_HOME/backlog-location"
+if [ -d "$BACKLOG_DIR" ]; then
+  if [ ! -f "$BACKLOG_PTR" ] || [ "$(cat "$BACKLOG_PTR" 2>/dev/null)" != "$BACKLOG_DIR" ]; then
+    [ -f "$BACKLOG_PTR" ] && backup_path "$BACKLOG_PTR" "backlog-location"
+    printf '%s\n' "$BACKLOG_DIR" > "$BACKLOG_PTR"
+    changed "backlog-location -> $BACKLOG_DIR"
+    CHANGED_COUNT=$((CHANGED_COUNT + 1))
+  else
+    ok "backlog-location"
+  fi
+else
+  warn "backlog/ dir not found in repo — skipped backlog-location"
 fi
 
 say ""

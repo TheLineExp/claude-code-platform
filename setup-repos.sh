@@ -58,12 +58,15 @@ for i in $(seq 0 $((COUNT - 1))); do
     ok "cloned -> $target"
   fi
 
-  # 2. Install git hooks (idempotent; ships its own hooks/install.sh)
+  # 2. Install the repo's OWN git hooks if it ships them (pre-commit etc.). The
+  # platform GUARD hooks are GLOBAL now — deployed once to ~/.claude via
+  # setup-machine.sh and fired for every session — so there is nothing per-repo
+  # to install here.
   if [ -f "$target/hooks/install.sh" ]; then
     run "bash '$target/hooks/install.sh'"
     ok "git hooks installed"
   else
-    warn "no hooks/install.sh in $name — run 'bash setup.sh $target' to install guard hooks"
+    ok "no repo git hooks in $name (guard hooks are global — run setup-machine.sh)"
   fi
 
   # 3. Scaffold .env files from their *.example siblings (never overwrite)

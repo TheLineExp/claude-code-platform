@@ -57,7 +57,12 @@ Glob, Bash`) — they report, they don't fix.
 1. Put the script in `platform/global/` (see `backlog-gate.js` for the pattern — it's a
    PreToolUse(Skill) hook that fails open).
 2. Register it in `platform/global/claude-settings.template.json` under the right event.
-   Use `{{HOME}}` / `{{REPOS_ROOT}}` placeholders, never literal machine paths.
+   There is NO template substitution — `setup-machine.sh` plain-copies this file to
+   `~/.claude/settings.json`. Write hook commands with `~` (`bash ~/.claude/hooks/x.sh`,
+   `node ~/.claude/hooks/x.js`); the shell expands `~` when the hook runs, so the command is
+   not locked to one user's home. Permission globs / `additionalDirectories` are the one place
+   literal machine paths are unavoidable (they name this Mac's repo locations) — fine for this
+   single-machine platform.
 3. Ensure `setup-machine.sh` copies it (it syncs the known file list — if you add a new
    top-level file, add the copy step there too; setup-machine.sh is owned outside docs/,
    so coordinate that edit).

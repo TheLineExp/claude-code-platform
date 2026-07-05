@@ -202,6 +202,25 @@ CLAUDE.mds. The fix landed on origin; your machine never pulled it. **Merging �
 
 ## THEME D — Deployability broken (the "deployable global solution" claim)
 
+> **BATCH #3 (Theme D) EXECUTED 2026-07-05 (branch feature/mk-theme-d-deployability):**
+> D1 — traceability-review SKILL's Windows `C:\Users\MichaelKunz\…` paths → `~/vt/…` Mac
+> paths, and the retired `/pre-deploy` pathway → `/letsbuild → develop → /code-review +
+> /traceability-review → /shipit` (the traceability-reviewer AGENT's hardcoded
+> `/Users/mikekunz/…` paths also → `~/vt/…`, which trims the session-loaded agent too).
+> D2 — DECISION (single-Mac platform, YAGNI): no templating engine; the two `node` hook
+> commands in the settings template → `~/.claude/hooks/…` (matching the `bash ~/…` guards
+> that already work — verified `~` expands in hook context), and CUSTOMIZATION.md rewritten
+> to state there is NO substitution (plain copy; use `~` in commands; permission globs are
+> the one unavoidable machine-literal). D3 — deleted the dead per-repo `setup.sh` (its
+> `$SCRIPT_DIR/.claude/hooks` never existed; contradicts the global model) and fixed the
+> `setup-repos.sh` pointer to stop recommending it. D4 — `setup-machine.sh` now WRITES
+> `~/.claude/backlog-location` (the /todo//feature primary lookup that previously failed on
+> every machine → fell back) and drift-checks it in `--diff`; SETUP/ARCHITECTURE docs
+> corrected (`*.bak-N` → `~/.claude/backups/<ts>/`; substitution fiction removed;
+> guard-hook mirror + session-guard.js now documented). Verified: settings JSON valid,
+> scripts `bash -n` clean, synced to live + `--diff` clean, both `node ~/…` commands
+> resolve, bypass-suite 194 + fuzzer 408 CLEAN on canonical AND live. **BATCH #3 COMPLETE.**
+
 - **D1 (P1)** `traceability-review/SKILL.md:64-126` (canonical AND live in ~/.claude) scripts
   `cd "C:\Users\MichaelKunz\..."` — every command fails on this Mac; also prescribes retired
   `/pre-deploy`. Fix: Mac paths (or `~/vt`), drop `/pre-deploy`.
