@@ -9,14 +9,19 @@ generated FROM this repo — see docs/AUDIT-2026-07-02.md for why.
   - `skills/` — 9 skills (doctrine, feature, graphify, letsbuild, pm, route, shipit, todo, traceability-review)
   - `agents/` — parity-sweep, money-concurrency-reviewer, traceability-reviewer
   - `hooks/` — the git-safety guard hooks (block-*, check-*, enforce-worktree, deps
-    `_parse-input.sh`/`_config.sh`). GLOBAL: they fire for every session via
+    `_parse-input.sh`/`_config.sh`/`_tokenize.pl`). GLOBAL: they fire for every session via
     `~/.claude/settings.json`, not per-repo. Universal guards (no-verify, destructive-git,
     gh-merge, rebase) run everywhere; worktree-discipline hooks self-gate on a registered
     `.claude/active-work.md` (via `_fleet_active`), while block-protected-branch gates on a
     `.claude/` dir existing (`_fleet_shaped` — fail-CLOSED even if active-work.md is emptied;
-    audit A8). Guards match per command SEGMENT with quoted strings blanked (never the raw
-    command), and policy (`_config.sh`) is hardcoded — no platform.config.json.
-    **Any hook edit must run `platform/tests/hook-bypass-suite.sh` before AND after.**
+    audit A8). Guards match on the normalized ARGV MODEL emitted by ONE shell-faithful
+    tokenizer (`_tokenize.pl`, sourced via `_parse-input.sh`) — never string regex, so the
+    git and writer surfaces cannot drift and a flag literal inside a quoted `-m` message is
+    just one token the guard skips (audit A9). Policy (`_config.sh`) is hardcoded — no
+    platform.config.json. `_tokenize.pl` is a hard dependency: setup-machine.sh mirrors
+    `*.sh` + `*.pl`, and without it the guards fail OPEN.
+    **Any hook edit must run `platform/tests/hook-bypass-suite.sh` (194) AND
+    `platform/tests/hook-grammar-fuzz.sh` (CLEAN) before AND after — canonical and live.**
   - `backlog-gate.js` (PreToolUse hook), `statusline-command.sh`
   - `claude-CLAUDE.template.md` → `~/.claude/CLAUDE.md`; `claude-settings.template.json` → `~/.claude/settings.json`
   - `graphify-autoquery.js` — retired from deployment; kept in repo only
