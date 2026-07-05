@@ -22,6 +22,25 @@ CLAUDE.mds. The fix landed on origin; your machine never pulled it. **Merging �
 
 ## THEME A — Guard hooks are porous (VERIFIED bypasses; live globally)
 
+> **METHOD PIVOT 2026-07-05 (after 7 reactive Codex rounds — Mike called it):** Rounds 1–7
+> were whack-a-mole: fixes and tests written from the SAME mental model, so the curated suite
+> only probed cases already imagined while Codex enumerated the shell grammar. ROOT CAUSE
+> (single, for all rounds): the guards match REGEX against a command STRING; a regex cannot
+> model shell execution. New approach (Mike-approved): (1) `platform/tests/hook-grammar-fuzz.sh`
+> — a GRAMMAR-DRIVEN generator that crosses {wrappers}×{command-word forms}×{flag/refspec
+> forms}×{context} and asserts the guard fires; run it to find leaks BEFORE review. First run
+> vs. the round-7 hooks: **309 cases, 6 leaks Codex never found**, ALL on the writer surface
+> (`block-file-redirect` ANSI-C `$'cp'` + brace-group `{ cp …; }`) — proving the real defect
+> is TWO hand-maintained parsers (git-side `_git_segments` vs. writer-side lexer) that DRIFT.
+> (2) NEXT: replace both with ONE shell-faithful tokenizer feeding all guards off an argv
+> model (parity becomes structural; A9 falls out for free). The 6 leaks are deliberately NOT
+> patched — patching them is the mistake. Regression gates for the rewrite: curated
+> `hook-bypass-suite.sh` (194) stays green AND `hook-grammar-fuzz.sh` reaches CLEAN.
+> THREAT MODEL (write it down): these are GUARDRAILS vs. an agent's accidental/obvious
+> mistakes, NOT a sandbox — shell is Turing-complete (`eval`, `base64|sh`, `python -c`,
+> write-then-run always win). The hard boundary is server-side branch protection +
+> agents-never-merge + the settings deny-list.
+
 > **STATUS 2026-07-04 (batch #2 executed):** A1–A11 + B1 all fixed in the canonical hooks.
 > Root cause across A1/A2/A3/A9/A10: guards matched the RAW command string — fixed by
 > quote-blanked per-segment matching in `_parse-input.sh` (`COMMAND_NOSTR`/`GIT_SEGMENTS`,
