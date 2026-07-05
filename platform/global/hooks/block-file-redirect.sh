@@ -59,14 +59,16 @@ block_write() {
 # Extract every redirect/tee target. Redirects: `>`/`>>`/`>|` with or WITHOUT a
 # space (`>f` and `> f`), excluding fd-dup forms (`>&`, `2>&1` — the char after
 # `>` is `&`). tee: allow flags (`-a`, `--append`, …) before the filename.
+# Operate on COMMAND_EXEC (env -S flattened; PR #11 R4) so a writer smuggled
+# through `env -S "cp …"` is analyzed as the command it executes.
 TARGETS=$(
   # unquoted targets (stop at whitespace)
-  echo "$COMMAND" | grep -oE '>[>|]?[[:space:]]*[^[:space:]|&;<>"'"'"']+' | sed -E 's/^>[>|]?[[:space:]]*//'
-  echo "$COMMAND" | grep -oE '\btee([[:space:]]+-{1,2}[a-zA-Z-]+)*[[:space:]]+[^[:space:]|&;<>"'"'"']+' | sed -E 's/^tee([[:space:]]+-{1,2}[a-zA-Z-]+)*[[:space:]]+//'
+  echo "$COMMAND_EXEC" | grep -oE '>[>|]?[[:space:]]*[^[:space:]|&;<>"'"'"']+' | sed -E 's/^>[>|]?[[:space:]]*//'
+  echo "$COMMAND_EXEC" | grep -oE '\btee([[:space:]]+-{1,2}[a-zA-Z-]+)*[[:space:]]+[^[:space:]|&;<>"'"'"']+' | sed -E 's/^tee([[:space:]]+-{1,2}[a-zA-Z-]+)*[[:space:]]+//'
   # quoted targets — REQUIRED for paths with spaces (the repo dir "Volo Technologies")
-  echo "$COMMAND" | grep -oE '>[>|]?[[:space:]]*"[^"]+"' | sed -E 's/^>[>|]?[[:space:]]*//'
-  echo "$COMMAND" | grep -oE ">[>|]?[[:space:]]*'[^']+'" | sed -E "s/^>[>|]?[[:space:]]*//"
-  echo "$COMMAND" | grep -oE '\btee([[:space:]]+-{1,2}[a-zA-Z-]+)*[[:space:]]+"[^"]+"' | sed -E 's/^tee([[:space:]]+-{1,2}[a-zA-Z-]+)*[[:space:]]+//'
+  echo "$COMMAND_EXEC" | grep -oE '>[>|]?[[:space:]]*"[^"]+"' | sed -E 's/^>[>|]?[[:space:]]*//'
+  echo "$COMMAND_EXEC" | grep -oE ">[>|]?[[:space:]]*'[^']+'" | sed -E "s/^>[>|]?[[:space:]]*//"
+  echo "$COMMAND_EXEC" | grep -oE '\btee([[:space:]]+-{1,2}[a-zA-Z-]+)*[[:space:]]+"[^"]+"' | sed -E 's/^tee([[:space:]]+-{1,2}[a-zA-Z-]+)*[[:space:]]+//'
 )
 
 while IFS= read -r target; do
@@ -80,7 +82,7 @@ done <<< "$TARGETS"
 #   sed  → file args, only when -i/--in-place is present
 #   cp/mv → the LAST path arg (the destination)
 #   dd   → the of= value;  sponge → its file arg
-WRITER_TARGETS=$(HOOK_CMD="$COMMAND" perl -e '
+WRITER_TARGETS=$(HOOK_CMD="$COMMAND_EXEC" perl -e '
   my $c = $ENV{HOOK_CMD} // "";
   my @segs; my @cur = ("");
   while (length $c) {

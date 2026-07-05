@@ -10,44 +10,44 @@ source "$SCRIPT_DIR/_parse-input.sh"
 $NEEDS_GIT_CHECK || exit 0
 echo "$GIT_SEGMENTS" | grep -qE '^git[[:space:]]+(commit|push|merge)([[:space:]]|$)' || exit 0
 
-# Deployed globally, but "protected branches" means the fleet's PR-based DEPLOY
-# branches (staging/master/main). A personal trunk-based repo (no .claude/)
-# legitimately commits to main. Gate on the repo being fleet-SHAPED — fail
-# CLOSED even when active-work.md is emptied or corrupted (audit A8).
-_fleet_shaped || exit 0
-
 source "$SCRIPT_DIR/_config.sh"
-
-BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
 PROT_ALT=$(echo "$PROTECTED_BRANCHES" | tr ' ' '|' | sed 's/|$//')
 
-while IFS= read -r seg; do
+# Each line is `EFFDIR<TAB>SEGMENT` — EFFDIR is the checkout the command writes
+# (`git -C <path> …`; PR #11 R4). Branch identity and fleet-shape are resolved AT
+# that directory, so `git -C ../main commit` from a feature worktree is judged by
+# ../main's branch, not the worktree's. Deployed globally, but "protected" means
+# the fleet's PR-based deploy branches — a personal trunk repo (no .claude/)
+# legitimately commits to main, so each segment self-gates on _fleet_shaped at
+# its EFFDIR, failing CLOSED even when active-work.md is emptied (audit A8).
+while IFS=$'\t' read -r effdir seg; do
   [ -n "$seg" ] || continue
+  echo "$seg" | grep -qE '^git[[:space:]]+(commit|push|merge)([[:space:]]|$)' || continue
+  effdir="${effdir:-.}"
+  _fleet_shaped "$effdir" || continue
 
-  # Refspec check: a push can target a protected branch from ANY checked-out
+  BRANCH=$(git -C "$effdir" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+
+  # Refspec check (push): a push can target a protected branch from ANY checked-out
   # branch — `git push origin HEAD:staging`, `git push origin feat:master`,
-  # `git push origin master`, and (audit A3) the fully-qualified form
-  # `HEAD:refs/heads/staging` plus forced `+master` refspecs. Match a protected
-  # name at a refspec boundary: preceded by `:`, space (optionally `+` and/or
-  # `refs/heads/`), followed by space/end — so `feature/staging-fix` (staging
-  # after an ordinary `/`) does NOT false-positive.
+  # `git push origin master`, the fully-qualified `HEAD:refs/heads/staging`
+  # (audit A3), forced `+master`, and glob `refs/heads/*` (PR #11 R1) refspecs.
+  # Match a protected name at a refspec boundary (preceded by `:` or space, opt.
+  # `+`/`refs/heads/`) so `feature/staging-fix` does NOT false-positive.
   if echo "$seg" | grep -qE '^git[[:space:]]+push([[:space:]]|$)'; then
     if [ -n "$PROT_ALT" ] && echo "$seg" | grep -qE "(:|[[:space:]])\\+?(refs/heads/)?(${PROT_ALT})([[:space:]]|\$)"; then
       echo "BLOCKED: push targets a protected branch (refspec → ${PROT_ALT})." >&2
       echo "  Protected branches deploy via PR, not a direct push. Use 'gh pr create'." >&2
       exit 2
     fi
-    # Glob refspecs (`refs/heads/*`, `x*:x*`) can update protected branches
-    # without ever naming them — block any non-flag push argument containing `*`.
     if echo "$seg" | grep -qE '(^|[[:space:]])[^-[:space:]][^[:space:]]*\*'; then
       echo "BLOCKED: glob refspec on push can write protected branches. Push explicit branch names." >&2
       exit 2
     fi
   fi
 
-  # Block commits AND pushes while STANDING on a protected branch. The command
-  # text alone is not enough — a bare `git push` (or `git commit`) on a
-  # checked-out protected branch names nothing, so gate on the CURRENT branch.
+  # Block commits AND pushes while STANDING on a protected branch. A bare
+  # `git push`/`git commit` names nothing, so gate on the effective branch.
   for protected in $PROTECTED_BRANCHES; do
     if [ "$BRANCH" = "$protected" ]; then
       if echo "$seg" | grep -qE '^git[[:space:]]+commit([[:space:]]|$)'; then
@@ -66,6 +66,6 @@ while IFS= read -r seg; do
       fi
     fi
   done
-done <<< "$GIT_SEGMENTS"
+done <<< "$GIT_SEGMENTS_D"
 
 exit 0

@@ -52,6 +52,17 @@ CLAUDE.mds. The fix landed on origin; your machine never pulled it. **Merging �
 > optional arg only) — removed from the operand-skip list, `-S`/`-Sn` cluster handling
 > added; and the block-file-redirect writer lexer had the R2 wrapper-options gap on its
 > TWIN surface — now in lockstep, with paired suite cases enforcing parity. Suite: 151.
+> Codex round 4 (all real, all fixed + suite-covered): (1) the git/file pre-greps ran on
+> raw `$COMMAND`, so a quoted command word (`"git" push`, `"cp" x y`) fast-path-allowed —
+> both pre-greps now run on COMMAND_NOSTR; (2) `env -S "<cmd string>"` executes its operand
+> but quote-blanking erased it — new COMMAND_EXEC flattens `env -S`/`--split-string` before
+> normalization (used by the git segmenter AND the writer lexer); (3) **`git -C <path>`
+> operated on a different checkout than the stateful hooks resolved state for** — the
+> segmenter now emits `EFFDIR<TAB>SEGMENT`, and block-protected-branch / check-work-
+> registration / check-branch-prefix resolve branch, fleet-shape, and window-id AT that
+> directory (`git -C ../main commit` from a feature worktree is now judged by ../main's
+> branch and blocked). Incidental: the BSD-sed tab-strip for the pure-segment column
+> mismatched letter-bearing -C paths — switched to tab-aware `cut`. Suite: 167.
 
 | # | Sev | File | Bypass (verified) | Fix |
 |---|---|---|---|---|

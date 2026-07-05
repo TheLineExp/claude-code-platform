@@ -27,31 +27,46 @@ FILE_PATH=$(echo "$INPUT" | sed -n 's/.*"file_path"[[:space:]]*:[[:space:]]*"\([
 # `cd wt && git push` slip through (A1), while grepping the whole string blocks
 # innocent commands whose -m/-F/echo arguments merely CONTAIN a flag literal (A9).
 #
-# COMMAND_NOSTR is COMMAND with quoted strings NORMALIZED: a quoted string that
-# is a single safe word is replaced by its bare content — the shell hands
-# `git commit "--no-verify"` to git as a plain flag token, so guards must still
-# see it (PR #11 review P1). Anything else (spaces, separators, expansions) is
-# blanked to "", so a commit message or echo argument that merely CONTAINS a
-# flag literal can never trip a guard (audit A9). Partial quoting concatenates
-# (`--no-ver"ify"` → `--no-verify`), matching shell word-joining.
-# Leftmost-first alternation mirrors shell quote scanning closely enough.
-COMMAND_NOSTR=$(printf '%s' "$COMMAND" | perl -0777 -pe '
+# COMMAND_EXEC first flattens `env -S "<cmd string>"` / `--split-string`: env's
+# -S splits that single operand into a command line and EXECUTES it (PR #11 R4),
+# so the operand IS the command the guards must see. We inline the dequoted
+# operand in place of the whole `env … -S <operand>` run. (A false match inside
+# an echo argument is harmless — it stays a non-git word after normalization.)
+COMMAND_EXEC=$(printf '%s' "$COMMAND" | perl -0777 -pe '
+  s{\benv\b[^"\x27|;&\n]*?(?:-S|--split-string)(?:=|\s+)?("(?:[^"\\]|\\.)*"|\x27[^\x27]*\x27|\S+)}{
+    my $o = $1;
+    if ($o =~ /^"(.*)"$/s) { $o = $1; $o =~ s/\\(.)/$1/g; }
+    elsif ($o =~ /^\x27(.*)\x27$/s) { $o = $1; }
+    $o
+  }ge' 2>/dev/null)
+[ -n "$COMMAND_EXEC" ] || COMMAND_EXEC="$COMMAND"
+
+# COMMAND_NOSTR is COMMAND_EXEC with quoted strings NORMALIZED: a quoted string
+# that is a single safe word is replaced by its bare content — the shell hands
+# `git commit "--no-verify"` (and `"git" push`) to the OS as plain tokens, so
+# guards must still see them (PR #11 review P1/R4). Anything else (spaces,
+# separators, expansions) is blanked to "", so a commit message or echo argument
+# that merely CONTAINS a flag literal can never trip a guard (audit A9). Partial
+# quoting concatenates (`--no-ver"ify"` → `--no-verify`, `g"it"` → `git`),
+# matching shell word-joining. Leftmost-first alternation mirrors shell scanning.
+COMMAND_NOSTR=$(printf '%s' "$COMMAND_EXEC" | perl -0777 -pe '
   s{"((?:[^"\\]|\\.)*)"|\x27([^\x27]*)\x27}{
     my $c = defined $1 ? $1 : $2;
     $c =~ s/\\(.)/$1/g if defined $1;
     $c =~ m{^[A-Za-z0-9_+.,:\/=\@^~*-]+$} ? $c : q("")
   }ge' 2>/dev/null)
 
-# GIT_SEGMENTS: one line per simple command that IS a git/gh invocation. The raw
-# command is split on separators — OPENING and CLOSING group delimiters both,
-# `(git reset ...)` must not leave `)` glued to the last token (PR #11 R2) —
-# OUTSIDE quotes; each segment is stripped of leading env assignments
-# (VAR=1 git …) and wrappers INCLUDING their options (`env -u NAME git …`,
-# `sudo -u root git …`, `xargs -n1 git …` all execute git — PR #11 R2; the
-# arg-taking wrapper flags are consumed with their argument), and git/gh global
-# options before the subcommand (-C dir, -c k=v, --no-pager, -R owner/repo) are
-# dropped so `git -C . push` still reads as `git push`. Hooks anchor their
-# patterns to `^git <subcommand>` against THESE lines, never against $COMMAND.
+# _git_segments emits one line per simple command that IS a git/gh invocation,
+# as `EFFDIR<TAB>SEGMENT`. EFFDIR is the directory the command actually operates
+# on — `git -C <path> …` runs in <path>, so a hook resolving branch/registration
+# in its own cwd would guard the WRONG checkout (PR #11 R4); stateful guards use
+# EFFDIR. The raw command is split on separators — opening AND closing group
+# delimiters (`(git reset …)` must not glue `)` to the last token; PR #11 R2) —
+# OUTSIDE quotes; each segment is stripped of leading env assignments (VAR=1 git)
+# and wrappers INCLUDING their options (`env -u NAME`, `sudo -u root`, `xargs`;
+# PR #11 R2), path-qualified/alias forms are normalized (`/usr/bin/git`, `\git`;
+# PR #11 R3), and git/gh global options before the subcommand (-C dir, -c k=v,
+# --no-pager, -R owner/repo) are dropped so `git -C x push` reads as `git push`.
 _git_segments() {
   printf '%s' "$COMMAND_NOSTR" | perl -0777 -ne '
     for my $seg (split /\|\||&&|[;|&\n()]|\$\(|`|\{[[:space:]]/) {
@@ -65,13 +80,19 @@ _git_segments() {
         $again = 1 if $seg =~ s/^env\s+(?:(?:-[uCS]|--unset|--chdir)\s+\S+\s+|-\S+\s+|[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*//;
         $again = 1 if $seg =~ s/^xargs\s+(?:-[IiEeLlnPsda]\s+\S+\s+|-\S+\s+)*//;
       }
-      # Path-qualified and alias-bypass invocations still run git: normalize
-      # `/usr/bin/git …` and `\git …` to `git …` (PR #11 R3).
       $seg =~ s/^\\+//;
       $seg =~ s{^\S*/(git|gh)(?=\s|$)}{$1};
       next unless $seg =~ /^(?:git|gh)(?:\s|$)/;
-      1 while $seg =~ s/^(git|gh)\s+(?:-[Cc]\s+\S+|-R\s+\S+|--(?:repo|git-dir|work-tree|namespace|exec-path)(?:=\S+|\s+\S+)?|--no-pager|--paginate|--bare|--literal-pathspecs)\s+/$1 /;
-      print "$seg\n";
+      my $dir = ".";
+      $again = 1;
+      while ($again) {
+        $again = 0;
+        # -C <path> / -C=<path> sets the effective directory (case-sensitive: -c
+        # is config key=value, NOT a directory).
+        if ($seg =~ s/^(git|gh)\s+-C(?:=|\s+)(\S+)\s+/$1 /) { $dir = $2; $again = 1; next; }
+        $again = 1 if $seg =~ s/^(git|gh)\s+(?:-c\s+\S+|-R\s+\S+|--(?:repo|git-dir|work-tree|namespace|exec-path)(?:=\S+|\s+\S+)?|--no-pager|--paginate|--bare|--literal-pathspecs)\s+/$1 /;
+      }
+      print "$dir\t$seg\n";
     }' 2>/dev/null
 }
 
@@ -80,15 +101,22 @@ _git_segments() {
 # NEEDS_GIT_CHECK is true only when a REAL git/gh command segment exists (a git
 # literal inside quotes no longer counts). NEEDS_FILE_CHECK is true for redirects
 # AND for the non-redirect writers block-file-redirect.sh inspects (audit A7).
+# BOTH pre-greps run on COMMAND_NOSTR, not raw $COMMAND — a quoted command word
+# (`"git" push`, `"cp" x y`) is a real invocation the shell executes, and only
+# normalization reveals it (PR #11 R4).
 
 NEEDS_GIT_CHECK=false
 NEEDS_FILE_CHECK=false
-GIT_SEGMENTS=""
+GIT_SEGMENTS_D=""   # EFFDIR<TAB>SEGMENT lines (stateful guards)
+GIT_SEGMENTS=""     # pure SEGMENT lines (stateless guards — unchanged interface)
 
-if [ -n "$COMMAND" ]; then
+if [ -n "$COMMAND_NOSTR" ]; then
   # Cheap pre-grep before spawning perl for segmentation.
-  if echo "$COMMAND" | grep -qE '(^|[^[:alnum:]_.-])(git|gh)([[:space:]]|$)'; then
-    GIT_SEGMENTS=$(_git_segments)
+  if echo "$COMMAND_NOSTR" | grep -qE '(^|[^[:alnum:]_.-])(git|gh)([[:space:]]|$)'; then
+    GIT_SEGMENTS_D=$(_git_segments)
+    # Drop the EFFDIR column for the stateless guards (cut is tab-aware; BSD sed
+    # is not, and a real -C path contains letters that a `\t` bracket mismatches).
+    GIT_SEGMENTS=$(printf '%s' "$GIT_SEGMENTS_D" | cut -f2-)
     [ -n "$GIT_SEGMENTS" ] && NEEDS_GIT_CHECK=true
   fi
   # Redirect detection: `>`/`>>`/`>|` followed by an eventual filename, WITH or
@@ -96,7 +124,7 @@ if [ -n "$COMMAND" ]; then
   # (`>&`, `2>&1`) — the next char after `>` there is `&`, not a file. Also flag
   # the non-redirect writers (sed -i, cp, mv, dd, sponge — audit A7). This is
   # only a fast-path gate; block-file-redirect.sh does the precise check.
-  if echo "$COMMAND" | grep -qE '(>[>|]?[[:space:]]*[^&|>[:space:]]|\btee\b|(^|[^[:alnum:]_.-])(sed|cp|mv|dd|sponge)([[:space:]]|$))'; then
+  if echo "$COMMAND_NOSTR" | grep -qE '(>[>|]?[[:space:]]*[^&|>[:space:]]|\btee\b|(^|[^[:alnum:]_.-])(sed|cp|mv|dd|sponge)([[:space:]]|$))'; then
     NEEDS_FILE_CHECK=true
   fi
 fi
@@ -107,14 +135,23 @@ fi
 # registered row in .claude/active-work.md (a `| wX | … |` / `| xN | … |` / `| s | … |`
 # line). Repos without registered work (the platform repo, one-off checkouts) → no-op.
 # Only the worktree hooks call this; universal git guards ignore it and run everywhere.
+# _seg_effdir <subcommand>: the effective directory (`git -C <path>`) of the
+# first git segment whose subcommand matches, else `.`. Lets the stateful commit
+# guards resolve branch/registration at the checkout the command targets (R4).
+_seg_effdir() {
+  awk -F'\t' -v re="^git[[:space:]]+$1([[:space:]]|\$)" '$2 ~ re {print $1; exit}' <<< "$GIT_SEGMENTS_D"
+}
+
+# Both helpers accept an optional directory (default cwd) so a `git -C <path> …`
+# command is evaluated against <path>, the checkout it actually writes (PR #11 R4).
 _fleet_active() {
-  local gcd main tl d
-  gcd=$(git rev-parse --git-common-dir 2>/dev/null) || return 1
+  local at="${1:-.}" gcd main tl d
+  gcd=$(git -C "$at" rev-parse --git-common-dir 2>/dev/null) || return 1
   case "$gcd" in
     /*) main=$(dirname "$gcd") ;;
-    *)  main=$(cd "$(dirname "$gcd")" 2>/dev/null && pwd) ;;
+    *)  main=$(cd "$at" 2>/dev/null && cd "$(dirname "$gcd")" 2>/dev/null && pwd) ;;
   esac
-  tl=$(git rev-parse --show-toplevel 2>/dev/null)
+  tl=$(git -C "$at" rev-parse --show-toplevel 2>/dev/null)
   for d in "$tl" "$main"; do
     [ -n "$d" ] && [ -f "$d/.claude/active-work.md" ] && \
       grep -qE '^\|[[:space:]]*(w|x|s)[0-9]*[[:space:]]*\|' "$d/.claude/active-work.md" && return 0
@@ -129,13 +166,13 @@ _fleet_active() {
 # hooks still gate on _fleet_active, because registration is what signals that the
 # letsbuild workflow is actually running.
 _fleet_shaped() {
-  local gcd main tl d
-  gcd=$(git rev-parse --git-common-dir 2>/dev/null) || return 1
+  local at="${1:-.}" gcd main tl d
+  gcd=$(git -C "$at" rev-parse --git-common-dir 2>/dev/null) || return 1
   case "$gcd" in
     /*) main=$(dirname "$gcd") ;;
-    *)  main=$(cd "$(dirname "$gcd")" 2>/dev/null && pwd) ;;
+    *)  main=$(cd "$at" 2>/dev/null && cd "$(dirname "$gcd")" 2>/dev/null && pwd) ;;
   esac
-  tl=$(git rev-parse --show-toplevel 2>/dev/null)
+  tl=$(git -C "$at" rev-parse --show-toplevel 2>/dev/null)
   for d in "$tl" "$main"; do
     [ -n "$d" ] && [ -d "$d/.claude" ] && return 0
   done

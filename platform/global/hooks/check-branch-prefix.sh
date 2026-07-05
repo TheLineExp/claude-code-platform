@@ -10,12 +10,15 @@ source "$SCRIPT_DIR/_parse-input.sh"
 $NEEDS_GIT_CHECK || exit 0
 echo "$GIT_SEGMENTS" | grep -qE '^git[[:space:]]+commit([[:space:]]|$)' || exit 0
 
+# Resolve against the checkout the commit targets — `git -C <path> commit` (R4).
+EFFDIR=$(_seg_effdir 'commit'); EFFDIR="${EFFDIR:-.}"
+
 # Global deployment: only enforce where the letsbuild workflow is active.
-_fleet_active || exit 0
+_fleet_active "$EFFDIR" || exit 0
 
 source "$SCRIPT_DIR/_config.sh"
 
-BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+BRANCH=$(git -C "$EFFDIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
 
 # Only check feature branches
 if ! echo "$BRANCH" | grep -q "^${FEATURE_PREFIX}"; then
@@ -34,7 +37,7 @@ done
 
 # Allow cross-repo prefix (x1, x2...) when window-id is also cross-repo
 if [[ "$BRANCH_PREFIX" == x* ]]; then
-  WINDOW_ID_FILE=".claude/window-id"
+  WINDOW_ID_FILE="$EFFDIR/.claude/window-id"
   if [ -f "$WINDOW_ID_FILE" ]; then
     WID=$(cat "$WINDOW_ID_FILE" 2>/dev/null | tr -d '[:space:]')
     if [[ "$WID" == x* ]]; then
@@ -45,7 +48,7 @@ fi
 
 # Allow solo prefix when window-id is 's'
 if [ "$BRANCH_PREFIX" = "s" ]; then
-  WINDOW_ID_FILE=".claude/window-id"
+  WINDOW_ID_FILE="$EFFDIR/.claude/window-id"
   if [ -f "$WINDOW_ID_FILE" ]; then
     WID=$(cat "$WINDOW_ID_FILE" 2>/dev/null | tr -d '[:space:]')
     if [ "$WID" = "s" ]; then
@@ -55,7 +58,7 @@ if [ "$BRANCH_PREFIX" = "s" ]; then
 fi
 
 # Check window ID file
-WINDOW_ID_FILE=".claude/window-id"
+WINDOW_ID_FILE="$EFFDIR/.claude/window-id"
 if [ ! -f "$WINDOW_ID_FILE" ]; then
   exit 0  # No window-id file, skip check
 fi
