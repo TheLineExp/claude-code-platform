@@ -39,14 +39,23 @@ function main() {
   const sessionId = input.session_id || 'unknown';
   if (!transcript || !fs.existsSync(transcript)) return;
 
-  // Cheap turn proxy: count assistant messages in the JSONL transcript.
+  // Size gate before any read (audit A11): a transcript under ~1.2MB cannot be
+  // near the 400-turn tier, and the old code read the whole file EVERY prompt.
+  try { if (fs.statSync(transcript).size < 1_200_000) return; } catch { return; }
+
+  // Cheap turn proxy: count TOP-LEVEL assistant events. Substring scan per line
+  // as a cheap filter, then JSON.parse to confirm — tool results legitimately
+  // embed nested `"type":"assistant"` objects (Agent-call transcripts), which
+  // the old whole-blob indexOf over-counted (audit A11).
   let turns = 0;
   try {
     const data = fs.readFileSync(transcript, 'utf8');
-    // Count line-anchored assistant events without a regex over the whole blob.
-    let idx = 0;
     const needle = '"type":"assistant"';
-    while ((idx = data.indexOf(needle, idx)) !== -1) { turns++; idx += needle.length; }
+    for (const line of data.split('\n')) {
+      if (!line.includes(needle)) continue;
+      try { if (JSON.parse(line).type === 'assistant') turns++; } catch { /* partial line */ }
+      if (turns >= TIERS[0].turns) break; // top tier reached — no need to keep counting
+    }
   } catch { return; }
 
   const tier = TIERS.find(t => turns >= t.turns);
@@ -60,6 +69,15 @@ function main() {
     fs.mkdirSync(markerDir, { recursive: true });
     fs.writeFileSync(marker, String(turns));
   } catch { return; }
+
+  // Prune markers older than 7 days — they were never GC'd (audit A11).
+  try {
+    const cutoff = Date.now() - 7 * 24 * 3600 * 1000;
+    for (const f of fs.readdirSync(markerDir)) {
+      const p = path.join(markerDir, f);
+      try { if (fs.statSync(p).mtimeMs < cutoff) fs.unlinkSync(p); } catch { /* best effort */ }
+    }
+  } catch { /* best effort */ }
 
   const strong = tier.name === 'strong';
   const msg = strong

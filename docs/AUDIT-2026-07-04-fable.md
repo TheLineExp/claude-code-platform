@@ -22,6 +22,20 @@ CLAUDE.mds. The fix landed on origin; your machine never pulled it. **Merging �
 
 ## THEME A — Guard hooks are porous (VERIFIED bypasses; live globally)
 
+> **STATUS 2026-07-04 (batch #2 executed):** A1–A11 + B1 all fixed in the canonical hooks.
+> Root cause across A1/A2/A3/A9/A10: guards matched the RAW command string — fixed by
+> quote-blanked per-segment matching in `_parse-input.sh` (`COMMAND_NOSTR`/`GIT_SEGMENTS`,
+> also strips env-assignment/wrapper prefixes and `git -C`-style global opts). A8: new
+> `_fleet_shaped` (fail-closed on `.claude/` presence) gates block-protected-branch;
+> worktree hooks still use `_fleet_active`. A7: quote-aware writer-target lexing in
+> block-file-redirect (sed -i/cp/mv/dd/sponge + `>|`); arbitrary interpreters
+> (`python -c`) remain a documented residual — FS-layer enforcement is the real fix.
+> Decision (Mike, batch #2): `MERGE_POLICY=block-all` is intended policy, now HARDCODED in
+> `_config.sh` (dead platform.config.json lookup + allow-staging branch removed — a config
+> override is itself a silent policy-downgrade vector). Adversarial suite at
+> `platform/tests/hook-bypass-suite.sh` (111 cases incl. the A9 must-PASS strings):
+> reproduced 49 failures pre-fix, 0 post-fix. Re-run it on EVERY hook edit.
+
 | # | Sev | File | Bypass (verified) | Fix |
 |---|---|---|---|---|
 | A1 | **P1** | block-protected-branch.sh:36,31 | `^git` anchor: `cd wt && git push origin master`, `VAR=1 git push origin master`, `true; git push origin master` all SKIP the guard → direct push to a deploy branch | drop `^`, match `(^|[^[:alnum:]_.-])git[[:space:]]+(commit\|push\|merge)\b` (mirror _parse-input's own detection) |

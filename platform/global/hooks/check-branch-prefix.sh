@@ -5,9 +5,10 @@
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/_parse-input.sh"
 
-# Fast path: only check on git commit
+# Fast path: only check on git commit (per segment — `cd wt && git commit`
+# must still be seen; audit A1 class)
 $NEEDS_GIT_CHECK || exit 0
-echo "$COMMAND" | grep -qE '^git commit\b' || exit 0
+echo "$GIT_SEGMENTS" | grep -qE '^git[[:space:]]+commit([[:space:]]|$)' || exit 0
 
 # Global deployment: only enforce where the letsbuild workflow is active.
 _fleet_active || exit 0

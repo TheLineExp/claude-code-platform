@@ -1,16 +1,22 @@
 #!/bin/bash
-# Block Bash commands that write to files in the main repo via redirects.
-# Catches: echo > file, cat > file, tee file, etc.
-# This closes the bypass gap where enforce-worktree only catches Edit/Write tools.
+# Block Bash commands that write to files in the main repo.
+# Catches redirects (echo > file, cat >> file, >| file, tee file) AND the
+# non-redirect writers that bypassed them (audit A7): sed -i, cp/mv into the
+# repo, dd of=, sponge. This closes the bypass gap where enforce-worktree only
+# catches Edit/Write tools.
+#
+# Known residual: arbitrary interpreters (python -c "open('w')", perl -e, …)
+# can still write files — that is unparseable from the command line; the real
+# fix for that class is filesystem-layer enforcement, not more regex.
 # Exit 2 = block, Exit 0 = allow
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/_parse-input.sh"
 
-# Fast path: no file redirect operators detected
+# Fast path: no redirect operators and no writer commands detected
 $NEEDS_FILE_CHECK || exit 0
 
 # Global deployment: this closes the enforce-worktree bypass, so it only applies where
-# the letsbuild workflow is active. Elsewhere, Bash redirects to repo files are fine.
+# the letsbuild workflow is active. Elsewhere, Bash writes to repo files are fine.
 _fleet_active || exit 0
 
 # Only enforce in the main repo (not in worktrees)
@@ -43,27 +49,75 @@ under_repo() {
   esac
 }
 
-# Extract every redirect/tee target. Redirects: `>`/`>>` with or WITHOUT a space
-# (`>f` and `> f`), excluding fd-dup forms (`>&`, `2>&1` — the char after `>` is `&`).
-# tee: allow flags (`-a`, `--append`, …) before the filename.
+block_write() {
+  echo "BLOCKED: Bash write to a repo file ('$1') detected in the main repo." >&2
+  echo "Code modifications must happen in a worktree. Run /letsbuild first." >&2
+  echo "(Writing to /tmp, /dev, ~/… or a path outside the repo is fine.)" >&2
+  exit 2
+}
+
+# Extract every redirect/tee target. Redirects: `>`/`>>`/`>|` with or WITHOUT a
+# space (`>f` and `> f`), excluding fd-dup forms (`>&`, `2>&1` — the char after
+# `>` is `&`). tee: allow flags (`-a`, `--append`, …) before the filename.
 TARGETS=$(
   # unquoted targets (stop at whitespace)
-  echo "$COMMAND" | grep -oE '>>?[[:space:]]*[^[:space:]|&;<>"'"'"']+' | sed -E 's/^>>?[[:space:]]*//'
+  echo "$COMMAND" | grep -oE '>[>|]?[[:space:]]*[^[:space:]|&;<>"'"'"']+' | sed -E 's/^>[>|]?[[:space:]]*//'
   echo "$COMMAND" | grep -oE '\btee([[:space:]]+-{1,2}[a-zA-Z-]+)*[[:space:]]+[^[:space:]|&;<>"'"'"']+' | sed -E 's/^tee([[:space:]]+-{1,2}[a-zA-Z-]+)*[[:space:]]+//'
   # quoted targets — REQUIRED for paths with spaces (the repo dir "Volo Technologies")
-  echo "$COMMAND" | grep -oE '>>?[[:space:]]*"[^"]+"' | sed -E 's/^>>?[[:space:]]*//'
-  echo "$COMMAND" | grep -oE ">>?[[:space:]]*'[^']+'" | sed -E "s/^>>?[[:space:]]*//"
+  echo "$COMMAND" | grep -oE '>[>|]?[[:space:]]*"[^"]+"' | sed -E 's/^>[>|]?[[:space:]]*//'
+  echo "$COMMAND" | grep -oE ">[>|]?[[:space:]]*'[^']+'" | sed -E "s/^>[>|]?[[:space:]]*//"
   echo "$COMMAND" | grep -oE '\btee([[:space:]]+-{1,2}[a-zA-Z-]+)*[[:space:]]+"[^"]+"' | sed -E 's/^tee([[:space:]]+-{1,2}[a-zA-Z-]+)*[[:space:]]+//'
 )
 
 while IFS= read -r target; do
   [ -n "$target" ] || continue
-  if under_repo "$target"; then
-    echo "BLOCKED: Bash write to a repo file ('$target') detected in the main repo." >&2
-    echo "Code modifications must happen in a worktree. Run /letsbuild first." >&2
-    echo "(Writing to /tmp, /dev, ~/… or a path outside the repo is fine.)" >&2
-    exit 2
-  fi
+  under_repo "$target" && block_write "$target"
 done <<< "$TARGETS"
+
+# Non-redirect writers (audit A7). A quote-aware lexer (so `cp x "src/my f.ts"`
+# keeps its spaced target) splits the command into segments/tokens, strips env
+# assignments and wrappers, and emits candidate write targets:
+#   sed  → file args, only when -i/--in-place is present
+#   cp/mv → the LAST path arg (the destination)
+#   dd   → the of= value;  sponge → its file arg
+WRITER_TARGETS=$(HOOK_CMD="$COMMAND" perl -e '
+  my $c = $ENV{HOOK_CMD} // "";
+  my @segs; my @cur = ("");
+  while (length $c) {
+    if ($c =~ s/^[[:space:]]+//) { push @cur, "" if $cur[-1] ne ""; next; }
+    if ($c =~ s/^(?:\|\||&&|[;|&\n()]|\$\(|`)//) { push @segs, [@cur]; @cur = (""); next; }
+    if ($c =~ s/^\x27([^\x27]*)\x27//) { $cur[-1] .= $1; next; }
+    if ($c =~ s/^"((?:[^"\\]|\\.)*)"//) { my $t = $1; $t =~ s/\\(.)/$1/g; $cur[-1] .= $t; next; }
+    if ($c =~ s/^([^[:space:];|&()\x27"`]+)//) { $cur[-1] .= $1; next; }
+    $c =~ s/^.//;
+  }
+  push @segs, [@cur];
+  for my $seg (@segs) {
+    my @t = grep { $_ ne "" } @$seg;
+    while (@t and ($t[0] =~ /^[A-Za-z_][A-Za-z0-9_]*=/ or $t[0] =~ /^(sudo|command|builtin|nohup|time|env)$/)) { shift @t; }
+    next unless @t;
+    my $cmd = shift @t; $cmd =~ s{.*/}{};
+    if ($cmd eq "sed") {
+      next unless grep { /^-i/ or /^--in-place/ } @t;
+      for my $a (@t) { print "sed\t$a\n" unless $a =~ /^-/; }
+    } elsif ($cmd eq "cp" or $cmd eq "mv") {
+      my @f = grep { !/^-/ } @t;
+      print "dst\t$f[-1]\n" if @f >= 2;
+    } elsif ($cmd eq "dd") {
+      for my $a (@t) { print "dst\t$1\n" if $a =~ /^of=(.+)$/; }
+    } elsif ($cmd eq "sponge") {
+      my @f = grep { !/^-/ } @t;
+      print "dst\t$f[-1]\n" if @f;
+    }
+  }
+' 2>/dev/null)
+
+while IFS=$'\t' read -r kind target; do
+  [ -n "$target" ] || continue
+  # sed file args are indistinguishable from scripts (`s/a/b/`) by shape alone —
+  # require the token to be an existing file before treating it as a write target.
+  if [ "$kind" = "sed" ] && [ ! -f "$target" ]; then continue; fi
+  under_repo "$target" && block_write "$target"
+done <<< "$WRITER_TARGETS"
 
 exit 0
