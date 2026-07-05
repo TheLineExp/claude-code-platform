@@ -19,8 +19,8 @@ guard hooks — no per-repo skills or agents.
 
 | Piece | Contents |
 |-------|----------|
-| `skills/` (9) | `doctrine`, `feature`, `graphify`, `letsbuild`, `pm`, `route`, `shipit`, `todo`, `traceability-review` |
-| `agents/` (3) | `parity-sweep` (blast-radius / sibling-call-site sweeper), `money-concurrency-reviewer` (adversarial TOCTOU/race reviewer for money paths), `traceability-reviewer` (end-to-end call-chain checker) |
+| `skills/` | `doctrine`, `feature`, `graphify`, `letsbuild`, `pm`, `route`, `shipit`, `todo`, `traceability-review` |
+| `agents/` | `parity-sweep` (blast-radius sweeper), `money-concurrency-reviewer` (TOCTOU/race reviewer), `traceability-reviewer` (call-chain checker), `project-evaluator` (post-plan sizing gate), `outside-reviewer` (context-isolated pre-push review) — canonical roster: [SKILLS_REFERENCE.md](docs/SKILLS_REFERENCE.md) |
 | `backlog-gate.js` | PreToolUse hook — confirms every `/todo` / `/feature` add (Doctrine Rule 4) |
 | `statusline-command.sh` | Statusline |
 | `claude-CLAUDE.template.md` | → `~/.claude/CLAUDE.md` |
@@ -68,9 +68,10 @@ agents — those were deleted after drifting into three divergent copies (see th
 
 | Task | Pathway |
 |------|---------|
-| Start work | `/letsbuild` — worktree + branch + registration; doctrine plan-gate at Phase 0 |
-| Ship | `/shipit` — staging PR → prod PR. Gates: `parity-sweep` + `money-concurrency-reviewer` agents, doctrine ship backstop, **PR-Ready gate** (checks green + 0 unresolved review threads before any "ready" claim), **prod-promotion gate** (staging must be converged first), session rotation after ship |
-| Review | built-in `/code-review` + the three agents above |
+| Start work | `/letsbuild` — doctrine plan-gate at Phase 0; **`project-evaluator` sizing at Phase 0.5** (every project: SOLO continues, ≥3-PR / 2-PR long-context diverts to `/pm` by default); then worktree + branch + registration |
+| Orchestrate | `/pm` — auto-entered from letsbuild Phase 0.5 (or manual): M window at low context, dev windows per chunk |
+| Ship | `/shipit` — staging PR → prod PR. Gates: `parity-sweep` + `money-concurrency-reviewer` agents, doctrine ship backstop, **outside-lens review** (`outside-reviewer` agent, every ship, before push + on every fix round), **PR-Ready gate** (checks green + 0 unresolved review threads before any "ready" claim), **prod-promotion gate** (staging must be converged first), session rotation after ship |
+| Review | built-in `/code-review` + the agents above |
 | Backlog | `/todo` (small) / `/feature` (large) — both gated by the `backlog-gate` hook |
 
 `gstack-ship` and `gstack-review` are retired.
@@ -80,7 +81,7 @@ agents — those were deleted after drifting into three divergent copies (see th
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — how the two layers fit together
 - [docs/SETUP.md](docs/SETUP.md) — machine setup detail
 - [docs/NEW_PC.md](docs/NEW_PC.md) — fresh-Mac runbook
-- [docs/SKILLS_REFERENCE.md](docs/SKILLS_REFERENCE.md) — the 9 skills + 3 agents
+- [docs/SKILLS_REFERENCE.md](docs/SKILLS_REFERENCE.md) — skills + agents reference (the canonical roster)
 - [docs/CUSTOMIZATION.md](docs/CUSTOMIZATION.md) — adding/changing skills, agents, hooks
 - [docs/REVIEWS.md](docs/REVIEWS.md) — PR review convention
 - [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) — common failures

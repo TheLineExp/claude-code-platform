@@ -32,18 +32,22 @@ the global layer only.
 
 ## Canonical layer contents
 
-### Skills (9) — `platform/global/skills/`
+### Skills — `platform/global/skills/`
 
 doctrine, feature, graphify, letsbuild, pm, route, shipit, todo, traceability-review.
 Full descriptions: [SKILLS_REFERENCE.md](SKILLS_REFERENCE.md).
 
-### Agents (3) — `platform/global/agents/`
+### Agents — `platform/global/agents/`
+
+(Canonical roster + count live in [SKILLS_REFERENCE.md](SKILLS_REFERENCE.md) — don't restate the number here.)
 
 | Agent | Role |
 |-------|------|
 | `parity-sweep` | Blast-radius sweeper: finds the sibling call site / twin route / parallel serializer / config surface the diff did NOT change but made inconsistent |
 | `money-concurrency-reviewer` | Adversarial TOCTOU/race reviewer for money paths (payments, refunds, vouchers, webhooks, locks, state machines) |
 | `traceability-reviewer` | End-to-end call-chain checker: UI → API client → route → service → DB, verifying signatures and shapes at every boundary |
+| `project-evaluator` | Post-planning sizing gate (letsbuild Phase 0.5): fresh-context plan check + SOLO-vs-PM routing verdict with a proposed chunk table |
+| `outside-reviewer` | Context-isolated pre-push reviewer (shipit Step 4b, every ship): sees only diff + spec, hunts the Codex catch taxonomy — the local external-lens round |
 
 ### Hooks and support files
 
@@ -62,7 +66,7 @@ Full descriptions: [SKILLS_REFERENCE.md](SKILLS_REFERENCE.md).
 
 - **Default mode** — syncs `platform/global/` into `~/.claude`, backing up anything it
   overwrites to `~/.claude/backups/<timestamp>/`. It mirrors: the CLAUDE.md + settings.json
-  templates (plain copy, no substitution); the 9 skills and 3 agents; the guard hooks —
+  templates (plain copy, no substitution); the skills and agents; the guard hooks —
   every `*.sh` **and** `_tokenize.pl` (the shared tokenizer every guard sources; a `*.sh`-only
   mirror would leave the guards fail-open); the `backlog-gate.js` + `session-guard.js` hooks
   and `statusline-command.sh`; and a `~/.claude/backlog-location` pointer to this repo's
@@ -78,9 +82,10 @@ port it into `platform/global/` if wanted, then re-sync.
 
 | Phase | Pathway | Gates |
 |-------|---------|-------|
-| Start | `/letsbuild` | Worktree + branch + registration; **doctrine plan-gate** at Phase 0 |
-| Ship | `/shipit` | Staging PR → prod PR. `parity-sweep` + `money-concurrency-reviewer` agent passes; doctrine ship backstop; **PR-Ready gate** — checks green + 0 unresolved review threads before any "ready" claim; **prod-promotion gate** — staging must be converged first; session rotation after ship |
-| Review | built-in `/code-review` + the 3 agents | — |
+| Start | `/letsbuild` | **doctrine plan-gate** at Phase 0; **project-evaluator agent** at Phase 0.5 sizes EVERY project — SOLO continues here; ≥3-PR (or 2-PR long-context) diverts to `/pm` by DEFAULT (this window = M at low context, dev windows execute chunks); then worktree + branch + registration |
+| Orchestrate | `/pm` (auto-entered from letsbuild Phase 0.5, or manual) | Master plan → chunk briefs → dev windows (each runs `/letsbuild` + `/shipit`); M verifies merges, runs milestone reviews, keeps context low (context-discipline rules in the M prompt) |
+| Ship | `/shipit` | Staging PR → prod PR. `parity-sweep` + `money-concurrency-reviewer` agent passes; doctrine ship backstop; **outside-lens review (Step 4b, every ship)** — context-isolated `outside-reviewer` agent must PASS before push, re-run on every fix round; **PR-Ready gate** — checks green + 0 unresolved review threads before any "ready" claim; **prod-promotion gate** — staging must be converged first; session rotation after ship |
+| Review | built-in `/code-review` + the agents | — |
 | Backlog | `/todo` (small) / `/feature` (large) | `backlog-gate` hook confirms every add |
 
 Retired pathways: `gstack-ship`, `gstack-review`.

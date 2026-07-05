@@ -43,9 +43,10 @@ cd claude-code-platform
 ./setup-machine.sh
 ```
 
-Syncs `platform/global/` → `~/.claude` (settings, CLAUDE.md, 9 skills, 3 agents,
-backlog-gate hook, statusline), substituting real machine paths and backing up anything it
-overwrites. Details: [SETUP.md](SETUP.md). Then **restart Claude Code**.
+Syncs `platform/global/` → `~/.claude` (settings, CLAUDE.md, the skills, the agents,
+guard hooks incl. `_tokenize.pl`, backlog-gate + session-guard hooks, statusline) as a
+plain copy — no template substitution — backing up anything it overwrites to
+`~/.claude/backups/<ts>/`. Details: [SETUP.md](SETUP.md). Then **restart Claude Code**.
 
 Verify: `./setup-machine.sh --diff` → everything IDENTICAL.
 
@@ -88,8 +89,8 @@ from the machine layer.
 
 ```bash
 ./setup-machine.sh --diff                         # clean
-ls ~/.claude/skills                                # the 9 skills
-ls ~/.claude/agents                                # the 3 agents
+ls ~/.claude/skills                                # must match platform/global/skills/
+ls ~/.claude/agents                                # must match platform/global/agents/
 cd ~/vt/fleetmanager-reservations && ls .git/hooks/pre-commit
 ```
 
@@ -99,5 +100,5 @@ In Claude Code: statusline shows `dir (branch) model ctx:NN%`; in a fleet repo,
 ## 6. Review workflow
 
 See [REVIEWS.md](REVIEWS.md) — local `/code-review --comment` as primary, plus the
-`parity-sweep` / `money-concurrency-reviewer` / `traceability-reviewer` agent gates run by
-`/shipit`.
+`parity-sweep` / `money-concurrency-reviewer` / `traceability-reviewer` / `outside-reviewer`
+agent gates run by `/shipit` (outside-reviewer fires on EVERY ship, before push).

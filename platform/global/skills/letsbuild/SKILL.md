@@ -1,6 +1,6 @@
 ---
 name: letsbuild
-description: Safe feature start workflow with multi-agent coordination. Creates an isolated git worktree, assigns window ID, creates feature branch, and registers work. MANDATORY before starting any work. Prevents agents from overwriting each other. Self-healing — cleans up stale state from previous sessions automatically.
+description: Safe feature start workflow with multi-agent coordination. MANDATORY before starting any work. Runs the doctrine plan-gate, then a fresh-context project evaluation (project-evaluator agent) that sizes EVERY project — multi-PR / long-context projects divert to /pm orchestration by default (M window + dev windows); solo-sized projects continue here. Creates an isolated git worktree, assigns window ID, creates feature branch, and registers work. Prevents agents from overwriting each other. Self-healing — cleans up stale state from previous sessions automatically.
 ---
 
 # Let's Build — Multi-Agent Safe Start (3-Tier)
@@ -32,7 +32,7 @@ This skill is **MANDATORY** before starting any coding work. It sets up isolated
 
 ---
 
-## Workflow — 5 Phases (0 + A–D)
+## Workflow — 6 Phases (0 + 0.5 + A–D)
 
 ### Phase 0: Doctrine / Plan Gate (run BEFORE any setup or code — MANDATORY)
 
@@ -57,7 +57,42 @@ Run `/doctrine plan-gate` and produce explicit written answers — not "looks fi
 5. **No-defer check.** Are you about to backlog or "phase-2" any of the asked work?
    Default is build it now — park only with Mike's explicit yes.
 
-If any item can't be satisfied, **resolve it with Mike before proceeding to Phase A.**
+If any item can't be satisfied, **resolve it with Mike before proceeding to Phase 0.5.**
+
+### Phase 0.5: Project Evaluation & Sizing (MANDATORY, every project — run by an AGENT)
+
+Every project gets a fresh-context evaluation between plan acceptance and build start.
+The author's context rationalizes its own plan; the evaluator's doesn't — spawn the
+**`project-evaluator` agent** (never evaluate inline) with:
+- the accepted plan (file path, or the plan text if no file exists),
+- the Phase 0 plan-gate answers.
+
+It returns a plan check + sizing verdict (`ROUTE: SOLO | PM`). The PM threshold is Mike's
+rule: **estimated PRs ≥ 3, or PRs = 2 with a context forecast that exceeds one window**
+(long-context / multi-repo).
+
+**ROUTE: SOLO** → surface the plan-check bullets (fix real gaps before building), then
+continue to Phase A unchanged.
+
+**ROUTE: PM** → the /pm pattern is the DEFAULT at this size, not an option. STOP letsbuild
+in this window and divert:
+1. Present the verdict + proposed chunk table to Mike for one confirmation
+   (recommend → approve; he may resize or overrule to SOLO).
+2. Draft `master-plan.md` from the accepted plan + chunk table using
+   `~/.claude/skills/pm/templates/master-plan-template.md`; save under `~/.claude/plans/`.
+3. Run `/pm init <project-name> <master-plan-path>`.
+4. THIS window becomes **M** (adopt `~/.claude/skills/pm/templates/m-orchestrator-prompt.md`,
+   including its context-discipline rules — M keeps project continuity at LOW context;
+   dev windows manage the details).
+5. Dev windows are opened per chunk via `/pm brief`; **each dev window runs `/letsbuild`
+   itself** from its brief.
+
+**Skip condition (no double evaluation) — VERIFY, don't trust:** if THIS letsbuild was
+invoked from a PM dev brief (the prompt names a chunk ID + brief path), sizing already
+happened at project level — skip Phase 0.5 ONLY after confirming the claim resolves: the
+brief file exists under `~/.claude/pm/<project>/briefs/` AND the chunk ID appears in that
+project's `master-plan.md`. A claimed chunk ID that doesn't resolve gets the full Phase 0.5
+(a bare assertion must not dodge the sizing gate).
 
 ### Phase A: Ground Truth Assessment (ALL repos)
 

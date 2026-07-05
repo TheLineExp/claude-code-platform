@@ -83,7 +83,9 @@ Build only what's in the agreed spec.
 | Gate | Where it runs | What it does |
 |------|---------------|--------------|
 | **Plan gate** (`/doctrine plan-gate`) | planning / letsbuild Phase 0, **before any code** | PRIMARY enforcement: spec-trace, surface value-adds, approve customer-contact, flag risk/length, no-defer |
+| **Evaluation gate** (`project-evaluator` agent) | letsbuild Phase 0.5, after plan-gate, **before any setup** | Fresh-context plan check + sizing: SOLO (build here) vs PM (≥3 PRs or 2 PRs long-context → /pm orchestration is the default) |
 | **Ship backstop** (`/doctrine ship-gate`) | `/shipit`, before commit | Silent if the plan gate was honored; catches only what slipped — hard-blocks unapproved customer-contact |
+| **Outside-lens review** (`outside-reviewer` agent) | `/shipit` Step 4b, after commit, **before push** — every ship | Context-isolated adversarial review (sees only diff + spec); kills Codex round cascades before code leaves the machine |
 | **Zoom-out** (`/doctrine zoom-out`) | the moment you notice spinning | Recovery protocol for Rule 3 |
 | **Audit** (`/doctrine audit`) | any time | Score a plan / diff / the session against all five rules |
 | **Backlog hook** | every `/todo add` & `/feature add` | Confirm-prompt so a model-initiated backlog can't pass silently (Rule 4) |

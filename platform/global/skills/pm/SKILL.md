@@ -1,6 +1,6 @@
 ---
 name: pm
-description: Multi-window project orchestration. The invoking window becomes the M (manager/master) — coordinating dev windows, routing chunks of a master plan, verifying merges, running cross-system milestone reviews. Use for any project that spans multiple repos and parallel workstreams. Subcommands - `init` (set up artifacts dir from a master plan), `sweep` (multi-repo audit), `brief` (generate dev brief from a chunk), `route` (handoff prompt for next chunk), `verify` (confirm PR merged on origin), `status` (live roll-up), `roster` (active windows), `decisions open|answer`, `blocked` (escalation), `ship` (mark chunk done), `acceptance` (review evidence), `milestone` (cross-system review chain), `review` (one-off review), `done` (archive). Examples - `/pm init volopass "/Users/mikekunz/Documents/Volo Technologies/plans/enchanted-riding-pnueli.md"`, `/pm sweep`, `/pm brief P5`, `/pm milestone track-P-complete`, `/pm ship P5 53`.
+description: Multi-window project orchestration. The invoking window becomes the M (manager/master) — coordinating dev windows, routing chunks of a master plan, verifying merges, running cross-system milestone reviews. DEFAULT route for any project sized ≥3 PRs (or 2 PRs long-context/multi-repo) — the letsbuild Phase 0.5 project-evaluator diverts here automatically; also invocable manually. M keeps project continuity at low context; dev windows manage the details. Subcommands - `init` (set up artifacts dir from a master plan), `sweep` (multi-repo audit), `brief` (generate dev brief from a chunk), `route` (handoff prompt for next chunk), `verify` (confirm PR merged on origin), `status` (live roll-up), `roster` (active windows), `decisions open|answer`, `blocked` (escalation), `ship` (mark chunk done), `acceptance` (review evidence), `milestone` (cross-system review chain), `review` (one-off review), `done` (archive). Examples - `/pm init volopass "/Users/mikekunz/Documents/Volo Technologies/plans/enchanted-riding-pnueli.md"`, `/pm sweep`, `/pm brief P5`, `/pm milestone track-P-complete`, `/pm ship P5 53`.
 ---
 
 # PM — Project Manager Skill
@@ -40,6 +40,10 @@ Active-work.md edits race when multiple dev windows update simultaneously. Inste
 ### `/pm init <project-name> <master-plan-path>`
 
 Set up a new project.
+
+> **Master plan origin:** the plan may be user-written, or DRAFTED from an accepted plan +
+> the `project-evaluator` chunk table (the letsbuild Phase 0.5 flow). A drafted plan is
+> presented to Mike for approval BEFORE init — chunk boundaries are a decision, not a detail.
 
 1. Create `~/.claude/pm/<project-name>/` and all subdirs.
 2. Copy or symlink the master plan into the project dir.
@@ -144,18 +148,24 @@ Show the acceptance checklist for a chunk + any evidence the dev has filed. If i
 
 **The cross-system review chain.** This is where the PM's complete-context advantage pays off.
 
+**M context discipline applies here (see `templates/m-orchestrator-prompt.md`): steps 1–5b
+run as SUBAGENTS that write their output to `reviews/milestone-*.md` — M never reads the
+diffs or transcripts itself, only the verdict/summary lines of each report.** M's
+contribution is the PROMPT context each subagent gets (master plan, ownership matrix,
+cross-repo invariants), not the reading.
+
 Sequence:
-1. **Diff aggregation**: collect every PR merged for this milestone across all repos (typically a track or a release candidate). Generate per-repo unified diffs and a per-track summary file at `reviews/milestone-<name>-aggregated.md`.
-2. **`/code-review`**: run over the aggregated diff with tailored context:
+1. **Diff aggregation** (subagent): collect every PR merged for this milestone across all repos (typically a track or a release candidate). Generate per-repo unified diffs and a per-track summary file at `reviews/milestone-<name>-aggregated.md`.
+2. **`/code-review`** (subagent): run over the aggregated diff with tailored context:
    - The master plan context (so it understands the WHY)
    - The aggregated diff
    - The file-ownership matrix (so it knows which boundaries should NOT have been crossed)
    - Specific cross-repo invariants to check (e.g., "Reservations consumes Vouchers' validateVoucher response shape — confirm the new fields are additive")
    Save output to `reviews/milestone-<name>-code-review.md`.
-3. **security-review**: spawn for any auth/PII/encryption/JWT surfaces touched. Check the FleetManager security architecture rules from CLAUDE.md.
-4. **parity-sweep agent**: whole-surface parity pass for any payment/state-transition/shared-helper/auth-gate/concurrency change in the milestone — the recurring bugs live in code the diff did NOT touch (sibling call sites, twin routes, parallel serializers, other exit branches).
-5. **money-concurrency-reviewer agent**: adversarial money/state/concurrency review of every payment, refund, voucher, and migration surface in the milestone (atomicity, idempotency, races, stranded-state reapers).
-5b. **Doctrine scope-integrity & customer-contact review** (`/doctrine ship-gate` across the aggregated diff): every change traces to the approved master-plan chunk (no surprise features slipped in across windows), and NO customer-contact channel (SMS/email/push/notice) was added/changed/enabled without an approved spec + Mike's sign-off. Any unapproved customer-contact surface is a **critical** finding that blocks the milestone.
+3. **security-review** (subagent): spawn for any auth/PII/encryption/JWT surfaces touched. Check the FleetManager security architecture rules from CLAUDE.md. Save to `reviews/milestone-<name>-security.md`.
+4. **parity-sweep agent** (subagent): whole-surface parity pass for any payment/state-transition/shared-helper/auth-gate/concurrency change in the milestone — the recurring bugs live in code the diff did NOT touch (sibling call sites, twin routes, parallel serializers, other exit branches). Save to `reviews/milestone-<name>-parity.md`.
+5. **money-concurrency-reviewer agent** (subagent): adversarial money/state/concurrency review of every payment, refund, voucher, and migration surface in the milestone (atomicity, idempotency, races, stranded-state reapers). Save to `reviews/milestone-<name>-money.md`.
+5b. **Doctrine scope-integrity & customer-contact review** (subagent, `/doctrine ship-gate` across the aggregated diff): every change traces to the approved master-plan chunk (no surprise features slipped in across windows), and NO customer-contact channel (SMS/email/push/notice) was added/changed/enabled without an approved spec + Mike's sign-off. Any unapproved customer-contact surface is a **critical** finding that blocks the milestone. Save to `reviews/milestone-<name>-doctrine.md`.
 6. **Test suite execution**: in each affected repo, run `docker-compose exec backend npm test` (and frontend equivalents). Save results to `reviews/milestone-<name>-tests.md`.
 7. **Coverage delta**: compare line/branch coverage before vs after the milestone. Flag regressions.
 8. **Findings classification**: every finding tagged `critical | warning | info`.
@@ -226,11 +236,22 @@ This skill chains other skills at specific points:
 
 ---
 
+## When this skill applies — DEFAULT for multi-PR projects, not opt-in
+
+PM is the **default route for any project sized at ≥3 PRs, or 2 PRs with a long-context /
+multi-repo forecast**. The routing decision happens automatically at **letsbuild Phase 0.5**:
+the `project-evaluator` agent sizes every project after plan acceptance, and a PM verdict
+diverts here — the invoking window becomes M, the accepted plan becomes a master plan, and
+dev windows execute the chunks. Manual `/pm init` remains available for user-driven starts.
+
+The division of context is the point: **M holds project continuity at LOW token weight**
+(master plan, status tables, briefs-by-pointer — see the context-discipline rules in
+`templates/m-orchestrator-prompt.md`); **dev windows hold the detail** (code, diffs, review
+cycles) and are disposable per chunk.
+
 ## When NOT to use this skill
 
-- For a single-developer, single-repo task. The overhead isn't worth it.
-- For a one-off bug fix or hotfix. Use `letsbuild` + `shipit` directly.
-- For exploration or research with no defined chunks. Use `Plan` mode instead.
+- A project the evaluator sized SOLO (1–2 PRs, fits one window). The overhead isn't worth it.
+- A one-off bug fix or hotfix. Use `letsbuild` + `shipit` directly.
+- Exploration or research with no defined chunks. Use `Plan` mode instead.
 - When the user wants to code, not orchestrate. Switch out of M-mode and into a dev window.
-
-The PM pattern is designed for: multi-repo features, parallel workstreams, week-plus timelines, and projects where cross-system coordination is the actual hard part.

@@ -100,23 +100,27 @@ See [`SKILL.md`](SKILL.md) for the full subcommand spec.
 
 **4. Reviews block ships.** `/pm ship` refuses to mark a chunk done if the latest milestone review has unresolved critical findings. Override with `--force` (logged).
 
-**5. Skill chaining.** `/pm milestone` calls `code-reviewer`, `security-review`, `api-review`, `gstack-review`, `deploy-verifier`, and tests as a single chain. The PM's cross-system context goes into each agent's prompt — every reviewer knows the whole.
+**5. Skill chaining.** `/pm milestone` runs `/code-review`, `security-review`, `parity-sweep`, `money-concurrency-reviewer` (as relevant), and tests as a single chain. The PM's cross-system context goes into each agent's prompt — every reviewer knows the whole.
 
 ## Milestone review chain
 
-The cross-system review at every track completion. Sequence:
+The cross-system review at every track completion. **Each step runs as a SUBAGENT that
+writes to `reviews/milestone-*.md`; M reads only the verdict lines** (the M context-discipline
+rule — M never reads the aggregated diffs itself). `pm/SKILL.md` is canonical for the exact
+sequence. Steps:
 
 1. **Diff aggregation** — collect every PR in the milestone across all repos
-2. **code-reviewer** — cross-repo code quality, with file-ownership matrix as input
+2. **/code-review** — cross-repo code quality, with file-ownership matrix as input
 3. **security-review** — auth, PII, encryption, JWT pinning
-4. **api-review** — REST design on new endpoints
-5. **gstack-review** — SQL safety on every migration
+4. **parity-sweep** — cross-repo sibling/twin/config consistency on the aggregated diff
+5. **money-concurrency-reviewer** — money-path/TOCTOU pass when the milestone touches money/state
 6. **Test suites** — `npm test` in each affected repo
 7. **Coverage delta** — flag regressions
 8. **Findings classification** — critical / warning / info
 9. **Block-ship gate** — any critical finding blocks `/pm ship`
 
-Run with `--full` to add `deploy-verifier` and `realworld-user` for E2E.
+(Per-chunk pre-push review — including the every-ship `outside-reviewer` — happens inside
+each dev window's `/shipit`; the milestone chain is the cross-system layer on top.)
 
 ## Hooks (optional)
 
@@ -131,19 +135,24 @@ Two reference hooks ship with the skill. Install in any product repo's `.git/hoo
 
 | When | Calls |
 |---|---|
+| letsbuild Phase 0.5 (`project-evaluator` verdict PM) | `/pm init` — the automatic entry path |
 | `/pm sweep` | optionally `env-audit` |
-| `/pm milestone` | `code-reviewer`, `security-review`, `api-review`, `gstack-review` |
-| `/pm milestone --full` | + `deploy-verifier`, `realworld-user` |
+| `/pm milestone` | `/code-review` + `security-review` + `parity-sweep` + `money-concurrency-reviewer` (as relevant) |
 | `/pm ship` (final chunk in a track) | suggests `shipit` |
-| `/pm review` (one-off) | `code-reviewer` + selective specialists |
+| `/pm review` (one-off) | `/code-review` + selective specialist agents |
+
+## When to use — DEFAULT for multi-PR projects
+
+PM is the **default route for projects sized ≥3 PRs, or 2 PRs with a long-context /
+multi-repo forecast** — routed automatically by the `project-evaluator` agent at letsbuild
+Phase 0.5, or entered manually via `/pm init`. M holds project continuity at LOW context
+(plans, status, pointers); dev windows manage the details.
 
 ## When NOT to use
 
-- Single-repo, single-developer task — overhead isn't worth it
+- Evaluator-sized SOLO projects (1–2 PRs, fits one window) — overhead isn't worth it
 - One-off bug fix or hotfix — use `letsbuild` + `shipit` directly
 - Exploration with no defined chunks — use `Plan` mode
-
-The PM pattern is for: multi-repo features, parallel workstreams, week-plus timelines, cross-system coordination as the actual hard part.
 
 ## Provenance
 

@@ -35,16 +35,20 @@ CLAUDE.mds point here; do not duplicate it.
    NOT be added, altered, or enabled without a written spec and Mike's explicit sign-off.
    An unspecified customer-contact feature is a defect. (Feedback-SMS rule.)
 
-**Enforcement gates:** `/doctrine plan-gate` BEFORE any code (primary), `/doctrine ship-gate`
-backstop inside `/shipit`, backlog hook confirms every park.
+**Enforcement gates:** `/doctrine plan-gate` BEFORE any code (primary), `project-evaluator`
+sizing at letsbuild Phase 0.5, `/doctrine ship-gate` backstop inside `/shipit`,
+`outside-reviewer` at shipit Step 4b before every push, backlog hook confirms every park.
 
 ---
 
 # One pathway per task — no alternates
-- **Start work:** `/letsbuild` (worktree + branch + registration). **Ship:** `/shipit`
-  (staging PR → prod PR, with its gates). **Review:** `/code-review` + the `parity-sweep`
-  and `money-concurrency-reviewer` agents (shipit invokes them). **Backlog:** `/todo`
-  (small) / `/feature` (large) — only on Mike's explicit park.
+- **Start work:** `/letsbuild` — it runs the plan gate, then the **project-evaluator agent
+  sizes EVERY project** (Phase 0.5): SOLO builds continue in letsbuild; **≥3-PR (or 2-PR
+  long-context) projects divert to `/pm` by DEFAULT** — this window becomes M (low context,
+  continuity), dev windows execute chunks. **Ship:** `/shipit` (staging PR → prod PR, with
+  its gates). **Review:** `/code-review` + the `parity-sweep`, `money-concurrency-reviewer`,
+  and `outside-reviewer` agents (shipit invokes them). **Backlog:** `/todo` (small) /
+  `/feature` (large) — only on Mike's explicit park.
 - The `gstack-ship` / `gstack-review` skills are RETIRED. If a request matches a retired
   pathway, use the ones above.
 
@@ -54,6 +58,9 @@ backstop inside `/shipit`, backlog hook confirms every park.
   every review-fix round (fix rounds create new siblings).
 - **money-concurrency-reviewer**: run on the FINAL HEAD of any money-path change. It reads
   whole call chains — never judge money code from snippets yourself.
+- **outside-reviewer**: EVERY ship, after commit before push (shipit Step 4b) — context-
+  isolated (gets only diff + spec, never session reasoning); re-run on every fix round
+  before pushing it. Purpose: Codex converges in ≤1 round instead of 4–8.
 
 # "Done" means verified — never report otherwise
 - Before saying a PR is ready/shipped/done, check LIVE state at that moment:
