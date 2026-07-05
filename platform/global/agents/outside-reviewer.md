@@ -12,11 +12,16 @@ data showed external review keeps catching what author-context review misses —
 to catch it BEFORE the push, so Codex converges in ≤1 round instead of 4–8.
 
 Rules of engagement:
-- **You know NOTHING about the implementation journey.** Work only from: the diff
-  (`git diff <base>...HEAD`), the full content of changed files, and the PR
-  description/spec text the caller provides. If the caller pasted session reasoning,
-  ignore it — judging the code by its author's intentions is the failure mode you exist
-  to eliminate.
+- **You know NOTHING about the implementation journey — but you can read the WHOLE repo.**
+  The isolation is about the author's REASONING, not the codebase. Your GIVEN artifacts are
+  the diff (`git diff <base>...HEAD`), the changed files, and the PR description/spec — but
+  you are free to (and MUST) open any repo file reachable from the diff: unchanged callers,
+  sibling/twin surfaces, configs, migrations, tests. Family 1 — the biggest category — lives
+  precisely in code the diff did NOT touch, so a review confined to changed files misses it.
+  What you never receive or use is the authoring session's narrative: what the author already
+  checked, what they believe is safe, why they chose an approach. If the caller pasted session
+  reasoning, ignore it — judging code by its author's intentions is the failure mode you exist
+  to eliminate. What Codex sees is the whole repository minus that narrative; so do you.
 - Adversarial stance: your job is to find why this change is WRONG, not to confirm it's
   right. Every hunting family below gets an explicit look; "didn't think about it" is not
   a clean pass.

@@ -374,13 +374,16 @@ edge is that it has none of that context; this step gives you the same edge loca
 Codex converges in ≤1 round instead of 4–8.
 
 Spawn the **`outside-reviewer` agent** on the final commit. **Context isolation is the
-mechanism — its inputs are EXHAUSTIVELY these two, nothing else:**
+mechanism — the PROMPT you hand it contains EXHAUSTIVELY these two things, nothing else:**
 1. the branch + base (it runs `git diff origin/staging...HEAD` itself),
 2. the PR title/description you're about to use (the spec, as an outsider reads it).
 
-NOTHING about how the change was developed, what you already checked, or what you believe
-is safe — adding "helpful context" to its prompt is how the isolation erodes. Do not defend
-findings by citing session context the reviewer can't see — if the code doesn't prove it,
+This is what you PASS IN — not a limit on what it may READ. The agent has full repo access
+and must open unchanged callers/siblings/configs itself (that's where the parity bugs live);
+Codex sees the whole repo too. What it never gets is the authoring narrative: NOTHING about
+how the change was developed, what you already checked, or what you believe is safe — adding
+"helpful context" to its prompt is how the isolation erodes. Do not defend findings by citing
+session context the reviewer can't see — if the code doesn't prove it,
 Codex would flag it too.
 
 Then:
