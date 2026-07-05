@@ -1,51 +1,47 @@
 #!/bin/bash
-# Block Bash commands that write to files in the main repo.
-# Catches redirects (echo > file, cat >> file, >| file, tee file) AND the
-# non-redirect writers that bypassed them (audit A7): sed -i, cp/mv into the
-# repo, dd of=, sponge. This closes the bypass gap where enforce-worktree only
-# catches Edit/Write tools.
+# Block Bash commands that write to files in the main repo. Catches redirects
+# (echo > file, cat >> file, >| file, tee) AND the non-redirect writers that
+# bypassed them (audit A7): sed -i, cp/mv into the repo, dd of=, sponge. All
+# targets come from the ONE tokenizer's argv model (_tokenize.pl), so this
+# surface can no longer DRIFT from the git-side parser (the whole point of the
+# 2026-07-05 rewrite — the grammar fuzzer's 6 leaks all lived on the old,
+# separately-maintained writer lexer).
 #
-# Known residual: arbitrary interpreters (python -c "open('w')", perl -e, …)
-# can still write files — that is unparseable from the command line; the real
-# fix for that class is filesystem-layer enforcement, not more regex.
+# Known residual: arbitrary interpreters (python -c "open('w')", perl -e, …) can
+# still write files — unparseable from the command line; the real fix is
+# filesystem-layer enforcement.
 # Exit 2 = block, Exit 0 = allow
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/_parse-input.sh"
 
-# Fast path: no redirect operators and no writer commands detected
+# Fast path: no redirect and no writer command detected.
 $NEEDS_FILE_CHECK || exit 0
 
-# Global deployment: this closes the enforce-worktree bypass, so it only applies where
-# the letsbuild workflow is active. Elsewhere, Bash writes to repo files are fine.
+# Closes the enforce-worktree bypass, so it only applies where the letsbuild
+# workflow is active. Elsewhere, Bash writes to repo files are fine.
 _fleet_active || exit 0
 
-# Only enforce in the main repo (not in worktrees)
+# Only enforce in the main repo (not in worktrees).
 GIT_DIR=$(git rev-parse --git-dir 2>/dev/null)
-if echo "$GIT_DIR" | grep -q "/worktrees/"; then
-  exit 0  # In a worktree, allow
-fi
-
-# Also allow if git-dir is just a file (worktree pointer)
-if [ -f "$GIT_DIR" ] 2>/dev/null; then
-  exit 0  # Worktree detected via .git file
-fi
+if echo "$GIT_DIR" | grep -q "/worktrees/"; then exit 0; fi
+if [ -f "$GIT_DIR" ] 2>/dev/null; then exit 0; fi
 
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 
 # Does a write target land INSIDE the repo tree? Covers relative paths (with or
-# without a leading `./`) and absolute paths under $REPO_ROOT. Explicitly allows
-# /dev/*, .claude/ setup files, ~/… and $VAR targets, and paths that escape via `..`.
+# without a leading `./`) and absolute paths under $REPO_ROOT. Allows /dev/*,
+# .claude/ setup files, ~/… and $VAR targets, and paths that escape via `..`.
 under_repo() {
-  local t="${1%\"}"; t="${t#\"}"; t="${t%\'}"; t="${t#\'}"   # strip surrounding quotes
+  local t="${1%\"}"; t="${t#\"}"; t="${t%\'}"; t="${t#\'}"   # defensive quote strip
   case "$t" in
-    /dev/*)               return 1 ;;   # device — allow
-    .claude/*|*/.claude/*) return 1 ;;  # setup files — allow
-    '~'*|'$'*)            return 1 ;;    # home/var expansion — not a repo-relative literal
-    ../*|*/../*)          return 1 ;;    # escapes cwd — conservatively allow
-    /*)                                  # absolute — block only if under the repo root
+    /dev/*)               return 1 ;;
+    .claude/*|*/.claude/*) return 1 ;;
+    '~'*|'$'*)            return 1 ;;
+    ../*|*/../*)          return 1 ;;
+    /*)
       [ -n "$REPO_ROOT" ] || return 1
       case "$t/" in "$REPO_ROOT/"*) return 0 ;; *) return 1 ;; esac ;;
-    *)                   return 0 ;;     # plain relative → inside the repo
+    *)                   return 0 ;;
   esac
 }
 
@@ -56,113 +52,73 @@ block_write() {
   exit 2
 }
 
-# Extract every redirect/tee target. Redirects: `>`/`>>`/`>|` with or WITHOUT a
-# space (`>f` and `> f`), excluding fd-dup forms (`>&`, `2>&1` — the char after
-# `>` is `&`). tee: allow flags (`-a`, `--append`, …) before the filename.
-# Operate on COMMAND_EXEC (env -S flattened; PR #11 R4) so a writer smuggled
-# through `env -S "cp …"` is analyzed as the command it executes.
-TARGETS=$(
-  # unquoted targets (stop at whitespace)
-  echo "$COMMAND_EXEC" | grep -oE '>[>|]?[[:space:]]*[^[:space:]|&;<>"'"'"']+' | sed -E 's/^>[>|]?[[:space:]]*//'
-  echo "$COMMAND_EXEC" | grep -oE '\btee([[:space:]]+-{1,2}[a-zA-Z-]+)*[[:space:]]+[^[:space:]|&;<>"'"'"']+' | sed -E 's/^tee([[:space:]]+-{1,2}[a-zA-Z-]+)*[[:space:]]+//'
-  # quoted targets — REQUIRED for paths with spaces (the repo dir "Volo Technologies")
-  echo "$COMMAND_EXEC" | grep -oE '>[>|]?[[:space:]]*"[^"]+"' | sed -E 's/^>[>|]?[[:space:]]*//'
-  echo "$COMMAND_EXEC" | grep -oE ">[>|]?[[:space:]]*'[^']+'" | sed -E "s/^>[>|]?[[:space:]]*//"
-  echo "$COMMAND_EXEC" | grep -oE '\btee([[:space:]]+-{1,2}[a-zA-Z-]+)*[[:space:]]+"[^"]+"' | sed -E 's/^tee([[:space:]]+-{1,2}[a-zA-Z-]+)*[[:space:]]+//'
-)
+# Per command: every write target is an argv token or a redirect target the
+# tokenizer already resolved (quotes/wrappers stripped, `git -C`-style context
+# irrelevant here). Emit and test each:
+#   redirects        → CMD_REDIRS
+#   cp/mv            → -t/--target-directory dest, else the last positional
+#   sed (with -i)    → existing file operands (skip -e/-f script operands)
+#   dd               → of= value
+#   sponge           → its last file arg
+#   tee              → each file arg
+_wr_check() {
+  local a cmd n i skip rest tdir dst
+  local -a nonflag
 
-while IFS= read -r target; do
-  [ -n "$target" ] || continue
-  under_repo "$target" && block_write "$target"
-done <<< "$TARGETS"
+  for a in "${CMD_REDIRS[@]}"; do
+    [ -n "$a" ] || continue
+    under_repo "$a" && block_write "$a"
+  done
 
-# Non-redirect writers (audit A7). A quote-aware lexer (so `cp x "src/my f.ts"`
-# keeps its spaced target) splits the command into segments/tokens, strips env
-# assignments and wrappers, and emits candidate write targets:
-#   sed  → file args, only when -i/--in-place is present
-#   cp/mv → the LAST path arg (the destination)
-#   dd   → the of= value;  sponge → its file arg
-WRITER_TARGETS=$(HOOK_CMD="$COMMAND_EXEC" perl -e '
-  my $c = $ENV{HOOK_CMD} // "";
-  my @segs; my @cur = ("");
-  while (length $c) {
-    if ($c =~ s/^[[:space:]]+//) { push @cur, "" if $cur[-1] ne ""; next; }
-    if ($c =~ s/^(?:\|\||&&|[;|&\n()]|\$\(|`)//) { push @segs, [@cur]; @cur = (""); next; }
-    if ($c =~ s/^\x27([^\x27]*)\x27//) { $cur[-1] .= $1; next; }
-    if ($c =~ s/^"((?:[^"\\]|\\.)*)"//) { my $t = $1; $t =~ s/\\(.)/$1/g; $cur[-1] .= $t; next; }
-    if ($c =~ s/^([^[:space:];|&()\x27"`]+)//) { $cur[-1] .= $1; next; }
-    $c =~ s/^.//;
-  }
-  push @segs, [@cur];
-  for my $seg (@segs) {
-    my @t = grep { $_ ne "" } @$seg;
-    # Wrapper stripping MUST consume wrapper OPTIONS too (`env -i cp …`,
-    # `sudo -u root mv …` still run the writer — PR #11 R3). Keep this in
-    # lockstep with _parse-input.sh::_git_segments; the bypass suite carries
-    # paired cases for both surfaces.
-    while (@t) {
-      if ($t[0] =~ /^(?:if|then|elif|else|while|until|do|!)$/) { shift @t; next; }
-      if ($t[0] =~ /^[A-Za-z_][A-Za-z0-9_]*=/) { shift @t; next; }
-      if ($t[0] =~ /^(?:command|builtin|nohup|time)$/) {
-        shift @t; shift @t while @t and $t[0] =~ /^-/; next;
-      }
-      if ($t[0] eq "sudo") {
-        shift @t;
-        while (@t and $t[0] =~ /^-/) { my $f = shift @t; shift @t if @t and $f =~ /^-[ugUTRDChp]$/; }
-        next;
-      }
-      if ($t[0] eq "env") {
-        shift @t;
-        while (@t and ($t[0] =~ /^-/ or $t[0] =~ /^[A-Za-z_][A-Za-z0-9_]*=/)) {
-          my $f = shift @t; shift @t if @t and ($f =~ /^-[uCS]$/ or $f eq "--unset" or $f eq "--chdir");
-        }
-        next;
-      }
-      if ($t[0] eq "xargs") {
-        shift @t;
-        while (@t and $t[0] =~ /^-/) { my $f = shift @t; shift @t if @t and $f =~ /^-[IiEeLlnPsda]$/; }
-        next;
-      }
-      last;
-    }
-    next unless @t;
-    my $cmd = shift @t; $cmd =~ s{.*/}{}; $cmd =~ s/^\\+//;
-    if ($cmd eq "sed") {
-      next unless grep { /^-i/ or /^--in-place/ } @t;
-      for my $a (@t) { print "sed\t$a\n" unless $a =~ /^-/; }
-    } elsif ($cmd eq "cp" or $cmd eq "mv") {
-      # GNU -t/--target-directory names the DESTINATION explicitly (PR #11
-      # review P2); when present, the positional args are all sources.
-      my $tdir;
-      for (my $i = 0; $i <= $#t; $i++) {
-        my $a = $t[$i];
-        if ($a eq "--target-directory") { $tdir = $t[$i+1] if $i < $#t; }
-        elsif ($a =~ /^--target-directory=(.*)$/) { $tdir = $1; }
-        # Short cluster containing t: chars after t are the ATTACHED dir
-        # (`-vtsrc` = -v -t src; PR #11 R6); if none, the next arg is the dir
-        # (`-t src`, `-rt src`).
-        elsif ($a =~ /^-[a-zA-Z]*t(.*)$/) {
-          my $rest = $1;
-          if ($rest ne "") { $tdir = $rest; } elsif ($i < $#t) { $tdir = $t[$i+1]; }
-        }
-      }
-      if (defined $tdir and $tdir ne "") { print "dst\t$tdir\n"; }
-      else { my @f = grep { !/^-/ } @t; print "dst\t$f[-1]\n" if @f >= 2; }
-    } elsif ($cmd eq "dd") {
-      for my $a (@t) { print "dst\t$1\n" if $a =~ /^of=(.+)$/; }
-    } elsif ($cmd eq "sponge") {
-      my @f = grep { !/^-/ } @t;
-      print "dst\t$f[-1]\n" if @f;
-    }
-  }
-' 2>/dev/null)
+  cmd="${CMD_ARGV[0]}"; n=${#CMD_ARGV[@]}
+  case "$cmd" in
+    cp|mv)
+      tdir=""; nonflag=(); i=1
+      while [ $i -lt $n ]; do
+        a="${CMD_ARGV[$i]}"
+        case "$a" in
+          --target-directory) i=$((i+1)); tdir="${CMD_ARGV[$i]}" ;;
+          --target-directory=*) tdir="${a#--target-directory=}" ;;
+          --*) : ;;
+          -*t*) rest="${a##*t}"; if [ -n "$rest" ]; then tdir="$rest"; else i=$((i+1)); tdir="${CMD_ARGV[$i]}"; fi ;;
+          -*) : ;;
+          *) nonflag+=("$a") ;;
+        esac
+        i=$((i+1))
+      done
+      if [ -n "$tdir" ]; then
+        under_repo "$tdir" && block_write "$tdir"
+      elif [ ${#nonflag[@]} -ge 2 ]; then
+        dst="${nonflag[$((${#nonflag[@]}-1))]}"
+        under_repo "$dst" && block_write "$dst"
+      fi ;;
+    sed)
+      skip=0
+      for a in "${CMD_ARGV[@]:1}"; do case "$a" in -i*|--in-place*) skip=1 ;; esac; done
+      [ $skip = 1 ] || return
+      skip=0; i=1
+      while [ $i -lt $n ]; do
+        a="${CMD_ARGV[$i]}"
+        if [ $skip = 1 ]; then skip=0; i=$((i+1)); continue; fi
+        case "$a" in
+          -e|-f|--expression|--file) skip=1 ;;
+          -*) : ;;
+          # sed file args are indistinguishable from scripts (`s/a/b/`) by shape;
+          # require the token to be an existing file before treating it as a write.
+          *) [ -f "$a" ] && { under_repo "$a" && block_write "$a"; } ;;
+        esac
+        i=$((i+1))
+      done ;;
+    dd)
+      for a in "${CMD_ARGV[@]:1}"; do case "$a" in of=*) dst="${a#of=}"; under_repo "$dst" && block_write "$dst" ;; esac; done ;;
+    sponge)
+      nonflag=()
+      for a in "${CMD_ARGV[@]:1}"; do case "$a" in -*) : ;; *) nonflag+=("$a") ;; esac; done
+      [ ${#nonflag[@]} -ge 1 ] && { dst="${nonflag[$((${#nonflag[@]}-1))]}"; under_repo "$dst" && block_write "$dst"; } ;;
+    tee)
+      for a in "${CMD_ARGV[@]:1}"; do case "$a" in -*) : ;; *) under_repo "$a" && block_write "$a" ;; esac; done ;;
+  esac
+}
 
-while IFS=$'\t' read -r kind target; do
-  [ -n "$target" ] || continue
-  # sed file args are indistinguishable from scripts (`s/a/b/`) by shape alone —
-  # require the token to be an existing file before treating it as a write target.
-  if [ "$kind" = "sed" ] && [ ! -f "$target" ]; then continue; fi
-  under_repo "$target" && block_write "$target"
-done <<< "$WRITER_TARGETS"
-
+_for_each_command _wr_check
 exit 0
