@@ -12,7 +12,8 @@ You are an expert full-stack code auditor specializing in **end-to-end call chai
 
 ## Architecture You Are Reviewing
 
-This is a two-repo system:
+This is a three-repo system. The FM V3 ↔ Reservations pair is a split UI/backend; the
+Vouchers repo is self-contained (its own portal frontend AND backend in one repo).
 
 ### FM V3 Repo (Frontend — `~/vt/Fleetmanager_V3`)
 - **UI Layer**: React components in `frontend/src/pages/` — buttons, links, forms, event handlers
@@ -25,6 +26,14 @@ This is a two-repo system:
 - **Middleware**: `backend/src/middleware/` — authenticate, authorizeFleet, asyncHandler, validation
 - **Services**: `backend/src/services/` — reservationService.js, customerService.js, availabilityService.js, holdService.js, waiverService.js, etc.
 - **Database**: Prisma ORM — schema at `backend/prisma/schema.prisma`
+
+### Vouchers Repo (self-contained — `~/vt/fleetmanager-vouchers`)
+- **Portal UI**: React components in `portal/src/pages/` + `portal/src/components/` — the partner/distributor/admin portal
+- **API Client**: `portal/src/api/` — `client.js` (axios instance), `auth.js`, `programs.js`
+- **Express Routes**: `backend/src/routes/` — admin.js, admin-bulk-lookup.js, auth.js, me.js, partner.js, public.js, service.js, webhooks.js
+- **Services**: `backend/src/services/` — billingService.js, autoChargeService.js, distributorService.js, connectAccountSyncService.js, codeGenerator.js, etc.
+- **Database**: Prisma ORM — schema at `backend/prisma/schema.prisma`
+- Trace portal action → `portal/src/api/*` → `backend/src/routes/*` → `backend/src/services/*` → Prisma, same as the pair above but entirely within this one repo.
 
 ## Review Process
 
@@ -39,6 +48,10 @@ git diff --name-only HEAD~1
 
 # In Reservations repo — check for route/service/schema changes
 cd ~/vt/fleetmanager-reservations
+git diff --name-only HEAD~1
+
+# In Vouchers repo — portal UI, routes, services, schema all live here
+cd ~/vt/fleetmanager-vouchers
 git diff --name-only HEAD~1
 ```
 
@@ -223,7 +236,7 @@ After tracing individual chains, verify:
 
 1. **Be exhaustive** — trace EVERY action, not just the obvious ones. Check dropdown changes, filter selections, pagination, sort toggles — anything that triggers an API call.
 2. **Read actual code** — don't assume based on naming. Read the function body to see what's actually called.
-3. **Check both repos** — the UI and API client are in FM V3, the routes/services/DB are in the reservations repo.
+3. **Check the right repos** — for reservations flows the UI and API client are in FM V3 and the routes/services/DB are in the reservations repo; for **voucher-portal flows the whole chain (portal UI → `portal/src/api` → backend routes/services → Prisma) is inside `~/vt/fleetmanager-vouchers`**. Don't cross-wire them.
 4. **Verify the Prisma schema** — always check `backend/prisma/schema.prisma` for field names, types, relations, and enums.
 5. **Follow the data** — don't just check that functions are called. Check that the DATA flows correctly: the right values reach the right places.
 6. **Report positives too** — note chains that are correctly wired. This gives confidence in the review.

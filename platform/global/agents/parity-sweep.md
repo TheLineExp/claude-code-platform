@@ -17,6 +17,31 @@ Rules of engagement:
 - You are read-only. You report; the caller fixes.
 - Work from the FINAL state of the branch (the diff vs origin/staging unless told otherwise).
 
+## Repo map (sweep the SIBLINGS, not just the repo you're in)
+
+The parity bug usually lives in a repo the diff never touched. These are the three fleet
+repos under `~/vt` (a space-free symlink to "Volo Technologies"). Quote every path.
+
+| Repo | Path | Backend | Frontend/portal |
+|------|------|---------|-----------------|
+| reservations | `~/vt/fleetmanager-reservations` | `backend/src` | (FM V3 is the UI) |
+| FM V3 | `~/vt/Fleetmanager_V3` | — | `frontend/src` |
+| vouchers | `~/vt/fleetmanager-vouchers` | `backend/src` | `portal/src` |
+
+When you find a changed helper/route/flag, `rg` for its siblings in ALL THREE repos, not just
+the one under review — a shared serializer or a twin voucher/reservation route is the classic
+missed site. If a repo isn't checked out, say so; do not silently narrow the sweep.
+
+## Grep hygiene (bare `rg -n` produces cross-function false positives)
+
+Every grep below is a starting point — tighten it so a match means what you think it means:
+- **`rg -nw <symbol>`** — word boundaries, so `refund` doesn't match `refundableCents`.
+- **`rg -nF "<literal>"`** — fixed-string for values/paths with regex metachars (`$executeRaw`,
+  `prisma.reservation.update`), so `.` and `$` aren't wildcards.
+- **Receiver-qualified** — search `prisma\.reservation\.update`, not bare `update`; search
+  `reservationsAPI\.confirm`, not bare `confirm`. Then READ the whole function around each hit
+  before judging — a match line is never enough (rule 1).
+
 ## Procedure
 
 1. **Inventory the diff.** `git diff origin/staging...HEAD --stat` then the full diff. Extract
@@ -29,6 +54,30 @@ Rules of engagement:
    consistent with the new behavior/signature/semantics? Pay special attention to consumers
    with a NARROWER data selection (e.g. a Prisma `select` that omits a field the helper now
    reads) and to job/cron/webhook/sweep call sites — they are the historically forgotten ones.
+
+2b. **Helper-bypass writers (the blind spot this sweep exists to close).** Step 2 greps the
+   symbols the diff CHANGED — it finds consumers of the new helper, but is structurally blind to
+   a raw writer the diff never touched that skips the new lock/helper. This is the
+   `_withSettlementLock`-class miss: the diff wraps ONE write path in a lock/helper, and an
+   untouched `prisma.x.update` elsewhere still mutates the same model with no lock. To catch it:
+   for each model/table the diff now guards with a lock, helper, or invariant, enumerate EVERY
+   raw writer of that model across all three repos and prove each one routes through the guard.
+   ```bash
+   # every raw writer of the guarded model — each hit MUST go through the new lock/helper.
+   # -F = fixed strings (the '.' are literal); every pattern behind -e (a bare positional
+   # would be read as a PATH once -e is present).
+   rg -nF -e "prisma.<model>.update" -e "prisma.<model>.updateMany" -e "prisma.<model>.upsert" \
+          -e "prisma.<model>.delete" -e "prisma.<model>.deleteMany" \
+          "$HOME/vt/fleetmanager-reservations/backend/src" \
+          "$HOME/vt/fleetmanager-vouchers/backend/src"
+   # raw SQL bypasses the ORM entirely — check these too
+   rg -nF -e '$executeRaw' -e '$executeRawUnsafe' -e '$queryRaw' \
+          "$HOME/vt/fleetmanager-reservations/backend/src" \
+          "$HOME/vt/fleetmanager-vouchers/backend/src"
+   ```
+   Read the full function around EVERY hit. Any writer that mutates the guarded model without
+   acquiring the lock / calling the helper is a **BLOCK** — it's the exact bug the lock was
+   added to prevent, still live on a path the diff didn't see.
 
 3. **Twin surfaces.** For each user-visible or route-level change, enumerate the twins and
    check each:

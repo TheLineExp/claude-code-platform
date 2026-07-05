@@ -159,6 +159,13 @@
           { "type": "command", "command": "bash ~/.claude/hooks/check-fix-landed.sh" }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node ~/.claude/hooks/pr-ready-gate.js" }
+        ]
+      }
     ]
   },
   "statusLine": {
