@@ -104,7 +104,10 @@ See [`SKILL.md`](SKILL.md) for the full subcommand spec.
 
 ## Milestone review chain
 
-The cross-system review at every track completion. Sequence:
+The cross-system review at every track completion. **Each step runs as a SUBAGENT that
+writes to `reviews/milestone-*.md`; M reads only the verdict lines** (the M context-discipline
+rule — M never reads the aggregated diffs itself). `pm/SKILL.md` is canonical for the exact
+sequence. Steps:
 
 1. **Diff aggregation** — collect every PR in the milestone across all repos
 2. **/code-review** — cross-repo code quality, with file-ownership matrix as input
