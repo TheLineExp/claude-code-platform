@@ -27,10 +27,20 @@ FILE_PATH=$(echo "$INPUT" | sed -n 's/.*"file_path"[[:space:]]*:[[:space:]]*"\([
 # `cd wt && git push` slip through (A1), while grepping the whole string blocks
 # innocent commands whose -m/-F/echo arguments merely CONTAIN a flag literal (A9).
 #
-# COMMAND_NOSTR is COMMAND with the CONTENTS of quoted strings removed (quotes
-# kept), so nothing inside a commit message or echo argument can trip a guard.
+# COMMAND_NOSTR is COMMAND with quoted strings NORMALIZED: a quoted string that
+# is a single safe word is replaced by its bare content — the shell hands
+# `git commit "--no-verify"` to git as a plain flag token, so guards must still
+# see it (PR #11 review P1). Anything else (spaces, separators, expansions) is
+# blanked to "", so a commit message or echo argument that merely CONTAINS a
+# flag literal can never trip a guard (audit A9). Partial quoting concatenates
+# (`--no-ver"ify"` → `--no-verify`), matching shell word-joining.
 # Leftmost-first alternation mirrors shell quote scanning closely enough.
-COMMAND_NOSTR=$(printf '%s' "$COMMAND" | perl -0777 -pe 's/"(?:[^"\\]|\\.)*"|\x27[^\x27]*\x27/""/g' 2>/dev/null)
+COMMAND_NOSTR=$(printf '%s' "$COMMAND" | perl -0777 -pe '
+  s{"((?:[^"\\]|\\.)*)"|\x27([^\x27]*)\x27}{
+    my $c = defined $1 ? $1 : $2;
+    $c =~ s/\\(.)/$1/g if defined $1;
+    $c =~ m{^[A-Za-z0-9_+.,:\/=\@^~*-]+$} ? $c : q("")
+  }ge' 2>/dev/null)
 
 # GIT_SEGMENTS: one line per simple command that IS a git/gh invocation. The raw
 # command is split on separators (;, &&, ||, |, &, newline, $(, `, subshell/group

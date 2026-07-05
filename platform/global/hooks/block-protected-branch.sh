@@ -37,6 +37,12 @@ while IFS= read -r seg; do
       echo "  Protected branches deploy via PR, not a direct push. Use 'gh pr create'." >&2
       exit 2
     fi
+    # Glob refspecs (`refs/heads/*`, `x*:x*`) can update protected branches
+    # without ever naming them — block any non-flag push argument containing `*`.
+    if echo "$seg" | grep -qE '(^|[[:space:]])[^-[:space:]][^[:space:]]*\*'; then
+      echo "BLOCKED: glob refspec on push can write protected branches. Push explicit branch names." >&2
+      exit 2
+    fi
   fi
 
   # Block commits AND pushes while STANDING on a protected branch. The command

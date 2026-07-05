@@ -101,8 +101,17 @@ WRITER_TARGETS=$(HOOK_CMD="$COMMAND" perl -e '
       next unless grep { /^-i/ or /^--in-place/ } @t;
       for my $a (@t) { print "sed\t$a\n" unless $a =~ /^-/; }
     } elsif ($cmd eq "cp" or $cmd eq "mv") {
-      my @f = grep { !/^-/ } @t;
-      print "dst\t$f[-1]\n" if @f >= 2;
+      # GNU -t/--target-directory names the DESTINATION explicitly (PR #11
+      # review P2); when present, the positional args are all sources.
+      my $tdir;
+      for (my $i = 0; $i <= $#t; $i++) {
+        my $a = $t[$i];
+        if ($a =~ /^-[a-zA-Z]*t$/ or $a eq "--target-directory") { $tdir = $t[$i+1] if $i < $#t; }
+        elsif ($a =~ /^--target-directory=(.*)$/) { $tdir = $1; }
+        elsif ($a =~ /^-t(.+)$/) { $tdir = $1; }
+      }
+      if (defined $tdir and $tdir ne "") { print "dst\t$tdir\n"; }
+      else { my @f = grep { !/^-/ } @t; print "dst\t$f[-1]\n" if @f >= 2; }
     } elsif ($cmd eq "dd") {
       for my $a (@t) { print "dst\t$1\n" if $a =~ /^of=(.+)$/; }
     } elsif ($cmd eq "sponge") {

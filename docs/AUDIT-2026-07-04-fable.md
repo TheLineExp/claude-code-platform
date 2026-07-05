@@ -33,8 +33,13 @@ CLAUDE.mds. The fix landed on origin; your machine never pulled it. **Merging �
 > Decision (Mike, batch #2): `MERGE_POLICY=block-all` is intended policy, now HARDCODED in
 > `_config.sh` (dead platform.config.json lookup + allow-staging branch removed — a config
 > override is itself a silent policy-downgrade vector). Adversarial suite at
-> `platform/tests/hook-bypass-suite.sh` (111 cases incl. the A9 must-PASS strings):
+> `platform/tests/hook-bypass-suite.sh` (125 cases incl. the A9 must-PASS strings):
 > reproduced 49 failures pre-fix, 0 post-fix. Re-run it on EVERY hook edit.
+> Codex round 1 on PR #11 (both real, both fixed + suite-covered): quoted single-word args
+> were blanked with the A9 strings, hiding `"--no-verify"`/`"+master"` argv tokens — fixed
+> by preserving safe-word quoted content (blank only multi-word/separator values); and
+> cp/mv `-t/--target-directory` dest form bypassed the A7 writer parser. Same-family
+> addition: glob refspecs (`refs/heads/*`) on push are now blocked too.
 
 | # | Sev | File | Bypass (verified) | Fix |
 |---|---|---|---|---|
