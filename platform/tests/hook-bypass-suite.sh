@@ -163,6 +163,13 @@ allow block-destructive-git.sh  "$FLEET_FEAT" $'git commit -F - <<-EOF\n\tgit pu
 allow block-destructive-git.sh  "$FLEET_FEAT" $'git commit -F - <<\x27EOF\x27\ngit push --force origin x\nEOF'       'heredoc: quoted delimiter → allow'
 block block-destructive-git.sh  "$FLEET_FEAT" $'git commit -F - <<EOF\nnote\nEOF\ngit push --force origin x'         'heredoc: REAL force push after close → block'
 block block-protected-branch.sh "$FLEET_FEAT" $'git commit -F - <<EOF\nnote\nEOF\ngit push origin master'           'heredoc: REAL protected push after close → block'
+# opener-line continuation (the false-NEGATIVE the single-regex strip introduced):
+# a real command sharing the heredoc's OPENER line via a separator must survive.
+block block-destructive-git.sh  "$FLEET_FEAT" $'git commit -F - <<EOF; git push --force origin x\nbody\nEOF'        'heredoc: REAL force after ; on opener → block'
+block block-destructive-git.sh  "$FLEET_FEAT" $'git commit -F - <<EOF && git reset --hard\nbody\nEOF'               'heredoc: REAL reset after && on opener → block'
+block block-destructive-git.sh  "$FLEET_FEAT" $'git commit -F - <<EOF | git clean -fdx\nbody\nEOF'                  'heredoc: REAL clean after | on opener → block'
+block block-protected-branch.sh "$FLEET_FEAT" $'git commit -F - <<EOF & git push origin master\nbody\nEOF'          'heredoc: REAL protected push after & on opener → block'
+allow block-destructive-git.sh  "$FLEET_FEAT" $'git commit -F - <<A <<B\nbodyA has git push --force\nA\nbodyB git reset --hard\nB' 'heredoc: multiple heredocs, both bodies dropped → allow'
 block "$H" "$FLEET_MASTER" 'git commit -m "x"'                           'commit while standing on master'
 block "$H" "$FLEET_MASTER" 'git push'                                    'bare push while standing on master'
 block "$H" "$FLEET_MASTER" 'git merge feature/w1-x'                      'merge while standing on master'

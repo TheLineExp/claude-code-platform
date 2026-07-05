@@ -46,14 +46,40 @@ SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 NEEDS_GIT_CHECK=false
 NEEDS_FILE_CHECK=false
 _TOKENIZED=""
-# Heredoc bodies are stdin DATA, never shell commands — the shell does not parse
+# Heredoc BODIES are stdin DATA, never shell commands — the shell does not parse
 # their lines as commands. Strip them BEFORE tokenizing so a `git commit -F - <<EOF
 # … EOF` whose message body quotes `git push --force` / `git reset --hard` at line
 # start can't be mis-read as those commands and falsely blocked (the audit-A9
 # false-positive class, re-entering through heredocs). One chokepoint here fixes
-# EVERY guard (git + writer). Matches `<<WORD`, `<<-WORD`, `<< WORD`, quoted
-# `<<'WORD'`/`<<"WORD"`; leaves here-strings (`<<<`) and bit-shifts untouched.
-_CMD_TOK=$(printf '%s' "$COMMAND" | perl -0777 -pe 's/<<-?[[:blank:]]*(["\x27]?)([A-Za-z_]\w*)\1.*?\n[[:blank:]]*\2[[:blank:]]*(?=\n|$)//gs' 2>/dev/null)
+# EVERY guard (git + writer).
+#
+# LINE-BASED, not a single regex: a single `<<WORD…\n…\nWORD` regex over-strips —
+# its `.*?` eats the REST OF THE OPENER LINE too, so `git commit -F - <<EOF; git
+# push --force\n…\nEOF` would silently drop the real `; git push --force` and
+# BYPASS every guard (a false-NEGATIVE, worse than the false-positive). Instead we
+# remove ONLY the `<<WORD` operator token from the opener line (keeping the rest of
+# that line, incl. any `;`/`&&` continuation), queue the delimiter(s), and drop the
+# following body lines up to each closing delimiter. Handles `<<WORD`, `<<-WORD`
+# (tabs before close), `<< WORD`, quoted `<<'WORD'`/`<<"WORD"`, and multiple
+# heredocs on one line; leaves here-strings (`<<<`) and bit-shifts (`<< 2`) untouched.
+_CMD_TOK=$(printf '%s' "$COMMAND" | perl -0777 -ne '
+  my @lines = split /\n/, $_, -1;
+  my (@out, @pending);
+  for my $ln (@lines) {
+    if (@pending) {
+      my ($d, $dash) = @{$pending[0]};
+      my $t = $ln; $t =~ s/^\t+// if $dash;        # <<- ignores leading TABS on the close
+      shift @pending if $t =~ /^[[:blank:]]*\Q$d\E[[:blank:]]*$/;
+      next;                                         # body line — drop it
+    }
+    my $work = $ln;
+    while ($work =~ s/<<(-?)[[:blank:]]*(["\x27]?)([A-Za-z_]\w*)\2//) {
+      push @pending, [$3, ($1 eq "-")];             # strip ONLY the operator; keep the tail
+    }
+    push @out, $work;
+  }
+  print join("\n", @out);
+' 2>/dev/null)
 [ -n "$_CMD_TOK" ] || _CMD_TOK="$COMMAND"
 _CMD_BARE=$(printf '%s' "$_CMD_TOK" | tr -d '\042\047\134')   # drop " ' \
 if [ -n "$COMMAND" ] && printf '%s' "$_CMD_BARE" | grep -qE '(^|[^[:alnum:]_.-])(git|gh|sed|cp|mv|dd|sponge|tee)([^[:alnum:]_.-]|$)|>'; then
