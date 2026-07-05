@@ -69,6 +69,13 @@ CLAUDE.mds. The fix landed on origin; your machine never pulled it. **Merging �
 > `while gh … ; do`) left the segment starting with `if`/`while` — both the segmenter and
 > the writer lexer now strip them; and `--git-dir`/`--work-tree` were treated as inert —
 > now captured as EFFDIR (git-dir → its parent checkout). Suite: 180.
+> Codex round 6 (all real, all fixed + suite-covered): ANSI-C `$'…'` / locale `$"…"` quoting
+> produced plain argv tokens but normalization left the `$` glued (`$--no-verify`) — both
+> forms are now consumed and backslash-processed; `env '--split-string=<cmd>'` bundles the
+> flag and value in ONE quoted token that the earlier `env -S` flatten missed — added a
+> quoted-whole-token rule; and clustered attached `cp -vtsrc` (GNU `-v -t src`) evaded the
+> target-directory parse — now any short cluster containing `t` takes the attached remainder
+> (or next arg) as the destination. Suite: 187.
 >
 > **RESIDUALS (documented, not fixed — regex shell-parsing is inherently leaky):** (a) an
 > alternate-context path that both contains spaces AND is quoted (`git -C "/a b" commit`)

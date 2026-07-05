@@ -136,9 +136,15 @@ WRITER_TARGETS=$(HOOK_CMD="$COMMAND_EXEC" perl -e '
       my $tdir;
       for (my $i = 0; $i <= $#t; $i++) {
         my $a = $t[$i];
-        if ($a =~ /^-[a-zA-Z]*t$/ or $a eq "--target-directory") { $tdir = $t[$i+1] if $i < $#t; }
+        if ($a eq "--target-directory") { $tdir = $t[$i+1] if $i < $#t; }
         elsif ($a =~ /^--target-directory=(.*)$/) { $tdir = $1; }
-        elsif ($a =~ /^-t(.+)$/) { $tdir = $1; }
+        # Short cluster containing t: chars after t are the ATTACHED dir
+        # (`-vtsrc` = -v -t src; PR #11 R6); if none, the next arg is the dir
+        # (`-t src`, `-rt src`).
+        elsif ($a =~ /^-[a-zA-Z]*t(.*)$/) {
+          my $rest = $1;
+          if ($rest ne "") { $tdir = $rest; } elsif ($i < $#t) { $tdir = $t[$i+1]; }
+        }
       }
       if (defined $tdir and $tdir ne "") { print "dst\t$tdir\n"; }
       else { my @f = grep { !/^-/ } @t; print "dst\t$f[-1]\n" if @f >= 2; }

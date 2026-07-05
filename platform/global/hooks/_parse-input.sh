@@ -36,18 +36,30 @@ FILE_PATH=$(echo "$INPUT" | sed -n 's/.*"file_path"[[:space:]]*:[[:space:]]*"\([
 # unwraps fully.
 _flatten_exec() {
   perl -0777 -pe '
+    sub dq { my $o = shift;
+      if    ($o =~ /^"(.*)"$/s)      { $o = $1; $o =~ s/\\(.)/$1/g; }
+      elsif ($o =~ /^\x27(.*)\x27$/s){ $o = $1; }
+      $o;
+    }
     my $n = 0;
-    1 while $n++ < 8 && s{
-      (?: \benv\b[^"\x27|;&\n]*?(?:-S|--split-string)(?:=|\s+)?
-        | \b(?:bash|sh|dash|zsh|ksh)\b[^"\x27|;&\n]*?-[a-zA-Z]*c(?:\s+)
-      )
-      ("(?:[^"\\]|\\.)*"|\x27[^\x27]*\x27|\S+)
-    }{
-      my $o = $1;
-      if ($o =~ /^"(.*)"$/s) { $o = $1; $o =~ s/\\(.)/$1/g; }
-      elsif ($o =~ /^\x27(.*)\x27$/s) { $o = $1; }
-      $o
-    }gex;
+    1 while $n++ < 8 && (
+      # Flag then a separate operand: `env -S <op>` / `--split-string[=] <op>`,
+      # and `bash|sh|dash|zsh|ksh -c <op>`.
+      s{
+        (?: \benv\b[^"\x27|;&\n]*?(?:-S|--split-string)(?:=|\s+)?
+          | \b(?:bash|sh|dash|zsh|ksh)\b[^"\x27|;&\n]*?-[a-zA-Z]*c(?:\s+)
+        )
+        ("(?:[^"\\]|\\.)*"|\x27[^\x27]*\x27|\S+)
+      }{ dq($1) }gex
+      # A single QUOTED token that bundles the split-string flag WITH its value —
+      # `env '"'"'--split-string=git …'"'"'` / `env "-Sgit …"` (PR #11 R6).
+      || s{
+        \benv\b[^|;&\n]*?
+        ( "(?:--split-string=|-S)(?:[^"\\]|\\.)*" | \x27(?:--split-string=|-S)[^\x27]*\x27 )
+      }{
+        my $t = dq($1); $t =~ s/^(?:--split-string=|-S)//; $t;
+      }gex
+    );
   ' 2>/dev/null
 }
 COMMAND_EXEC=$(printf '%s' "$COMMAND" | _flatten_exec)
@@ -60,13 +72,23 @@ COMMAND_EXEC=$(printf '%s' "$COMMAND" | _flatten_exec)
 # separators, expansions) is blanked to "", so a commit message or echo argument
 # that merely CONTAINS a flag literal can never trip a guard (audit A9). Partial
 # quoting concatenates (`--no-ver"ify"` → `--no-verify`, `g"it"` → `git`),
-# matching shell word-joining. Leftmost-first alternation mirrors shell scanning.
+# matching shell word-joining. ANSI-C (`$'…'`) and locale (`$"…"`) quoting also
+# produce plain argv tokens (`git commit $'--no-verify'`; PR #11 R6) — the `$`
+# prefix is consumed and ANSI-C/double content is backslash-processed. Leftmost-
+# first alternation mirrors shell scanning.
 COMMAND_NOSTR=$(printf '%s' "$COMMAND_EXEC" | perl -0777 -pe '
-  s{"((?:[^"\\]|\\.)*)"|\x27([^\x27]*)\x27}{
-    my $c = defined $1 ? $1 : $2;
-    $c =~ s/\\(.)/$1/g if defined $1;
+  s{
+      \$\x27((?:[^\x27\\]|\\.)*)\x27     # $1: ANSI-C  $'"'"'...'"'"'
+    | \$?"((?:[^"\\]|\\.)*)"             # $2: "..." or locale $"..."
+    | \x27([^\x27]*)\x27                 # $3: plain  '"'"'...'"'"'
+  }{
+    my ($a,$d,$s) = ($1,$2,$3);
+    my $c;
+    if    (defined $a) { $c = $a; $c =~ s/\\(.)/$1/g; }
+    elsif (defined $d) { $c = $d; $c =~ s/\\(.)/$1/g; }
+    else               { $c = $s; }
     $c =~ m{^[A-Za-z0-9_+.,:\/=\@^~*-]+$} ? $c : q("")
-  }ge' 2>/dev/null)
+  }gex' 2>/dev/null)
 
 # _git_segments emits one line per simple command that IS a git/gh invocation,
 # as `EFFDIR<TAB>SEGMENT`. EFFDIR is the directory the command actually operates
