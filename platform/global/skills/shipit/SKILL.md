@@ -374,12 +374,14 @@ edge is that it has none of that context; this step gives you the same edge loca
 Codex converges in ≤1 round instead of 4–8.
 
 Spawn the **`outside-reviewer` agent** on the final commit. **Context isolation is the
-mechanism — give it ONLY what an external reviewer sees:**
-- the branch + base (it runs `git diff origin/staging...HEAD` itself),
-- the PR title/description you're about to use (the spec, as an outsider reads it),
-- NOTHING about how the change was developed, what you already checked, or what you believe
-  is safe. Do not defend findings by citing session context the reviewer can't see — if the
-  code doesn't prove it, Codex would flag it too.
+mechanism — its inputs are EXHAUSTIVELY these two, nothing else:**
+1. the branch + base (it runs `git diff origin/staging...HEAD` itself),
+2. the PR title/description you're about to use (the spec, as an outsider reads it).
+
+NOTHING about how the change was developed, what you already checked, or what you believe
+is safe — adding "helpful context" to its prompt is how the isolation erodes. Do not defend
+findings by citing session context the reviewer can't see — if the code doesn't prove it,
+Codex would flag it too.
 
 Then:
 1. **PASS** (all 7 families checked-clean) → proceed to Step 5.
@@ -464,8 +466,8 @@ query($owner:String!, $repo:String!, $pr:Int!) {
 
 **BLOCK the "ready" report** if any check is failing or the unresolved-thread count is > 0:
 address every unresolved thread (fix + reply, or justify and resolve), re-run the Step 1b
-agents on the new HEAD (RE-REVIEW RULE), push, and re-check. Only a live result of
-"checks green + 0 unresolved threads" earns the word "ready".
+agents AND the `outside-reviewer` (Step 4b) on the new HEAD (RE-REVIEW RULE), push, and
+re-check. Only a live result of "checks green + 0 unresolved threads" earns the word "ready".
 
 To reply to an inline review thread, use the WORKING recipe (do not guess payload shapes):
 ```bash

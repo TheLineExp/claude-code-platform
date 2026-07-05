@@ -148,9 +148,15 @@ Show the acceptance checklist for a chunk + any evidence the dev has filed. If i
 
 **The cross-system review chain.** This is where the PM's complete-context advantage pays off.
 
+**M context discipline applies here (see `templates/m-orchestrator-prompt.md`): steps 1–5b
+run as SUBAGENTS that write their output to `reviews/milestone-*.md` — M never reads the
+diffs or transcripts itself, only the verdict/summary lines of each report.** M's
+contribution is the PROMPT context each subagent gets (master plan, ownership matrix,
+cross-repo invariants), not the reading.
+
 Sequence:
-1. **Diff aggregation**: collect every PR merged for this milestone across all repos (typically a track or a release candidate). Generate per-repo unified diffs and a per-track summary file at `reviews/milestone-<name>-aggregated.md`.
-2. **`/code-review`**: run over the aggregated diff with tailored context:
+1. **Diff aggregation** (subagent): collect every PR merged for this milestone across all repos (typically a track or a release candidate). Generate per-repo unified diffs and a per-track summary file at `reviews/milestone-<name>-aggregated.md`.
+2. **`/code-review`** (subagent): run over the aggregated diff with tailored context:
    - The master plan context (so it understands the WHY)
    - The aggregated diff
    - The file-ownership matrix (so it knows which boundaries should NOT have been crossed)

@@ -87,9 +87,12 @@ in this window and divert:
 5. Dev windows are opened per chunk via `/pm brief`; **each dev window runs `/letsbuild`
    itself** from its brief.
 
-**Skip condition (no double evaluation):** if THIS letsbuild was invoked from a PM dev
-brief (the prompt names a chunk ID + brief path), sizing already happened at project level
-— skip Phase 0.5 and proceed to Phase A for the chunk.
+**Skip condition (no double evaluation) — VERIFY, don't trust:** if THIS letsbuild was
+invoked from a PM dev brief (the prompt names a chunk ID + brief path), sizing already
+happened at project level — skip Phase 0.5 ONLY after confirming the claim resolves: the
+brief file exists under `~/.claude/pm/<project>/briefs/` AND the chunk ID appears in that
+project's `master-plan.md`. A claimed chunk ID that doesn't resolve gets the full Phase 0.5
+(a bare assertion must not dodge the sizing gate).
 
 ### Phase A: Ground Truth Assessment (ALL repos)
 

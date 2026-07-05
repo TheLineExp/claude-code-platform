@@ -35,8 +35,9 @@ CLAUDE.mds point here; do not duplicate it.
    NOT be added, altered, or enabled without a written spec and Mike's explicit sign-off.
    An unspecified customer-contact feature is a defect. (Feedback-SMS rule.)
 
-**Enforcement gates:** `/doctrine plan-gate` BEFORE any code (primary), `/doctrine ship-gate`
-backstop inside `/shipit`, backlog hook confirms every park.
+**Enforcement gates:** `/doctrine plan-gate` BEFORE any code (primary), `project-evaluator`
+sizing at letsbuild Phase 0.5, `/doctrine ship-gate` backstop inside `/shipit`,
+`outside-reviewer` at shipit Step 4b before every push, backlog hook confirms every park.
 
 ---
 

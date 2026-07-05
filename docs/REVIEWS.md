@@ -44,8 +44,10 @@ orchestrated by `/shipit`.
 2. **Fix or reply-and-resolve.** Every finding is fixed (reference the commit) or replied
    to with rationale, then resolved. No silent dismissals.
 3. **Dedup overlaps** — address once, note "covers both".
-4. **Re-review after the fix pass** (including re-running the two agents for gated change
-   types), then merge once clean on the new HEAD.
+4. **Re-review after the fix pass** — re-run the Step 1b agents for gated change types AND
+   `outside-reviewer` on the fix commits (shipit Step 4b applies to every fix round; pushing
+   unreviewed fix commits is the 8-round-cascade failure mode) — then merge once clean on
+   the new HEAD.
 
 ## Primary/fallback swap
 

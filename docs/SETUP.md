@@ -23,7 +23,8 @@ What it does (idempotent; backs up anything it overwrites to `~/.claude/backups/
 - Copies `platform/global/claude-settings.template.json` → `~/.claude/settings.json` and
   `platform/global/claude-CLAUDE.template.md` → `~/.claude/CLAUDE.md` (plain copy — there is
   no template substitution; hook commands use `~` so they aren't locked to one user's home).
-- Syncs the 9 skills → `~/.claude/skills/` and the 5 agents → `~/.claude/agents/`.
+- Syncs the skills → `~/.claude/skills/` and the agents → `~/.claude/agents/` (canonical
+  roster: [SKILLS_REFERENCE.md](SKILLS_REFERENCE.md)).
 - Mirrors the guard hooks (`*.sh` + `_tokenize.pl`) → `~/.claude/hooks/`, and installs
   `backlog-gate.js` + `session-guard.js` there plus `statusline-command.sh`.
 - Writes `~/.claude/backlog-location` pointing at this repo's `backlog/` dir.
