@@ -33,13 +33,19 @@ CLAUDE.mds. The fix landed on origin; your machine never pulled it. **Merging �
 > Decision (Mike, batch #2): `MERGE_POLICY=block-all` is intended policy, now HARDCODED in
 > `_config.sh` (dead platform.config.json lookup + allow-staging branch removed — a config
 > override is itself a silent policy-downgrade vector). Adversarial suite at
-> `platform/tests/hook-bypass-suite.sh` (125 cases incl. the A9 must-PASS strings):
+> `platform/tests/hook-bypass-suite.sh` (139 cases incl. the A9 must-PASS strings):
 > reproduced 49 failures pre-fix, 0 post-fix. Re-run it on EVERY hook edit.
 > Codex round 1 on PR #11 (both real, both fixed + suite-covered): quoted single-word args
 > were blanked with the A9 strings, hiding `"--no-verify"`/`"+master"` argv tokens — fixed
 > by preserving safe-word quoted content (blank only multi-word/separator values); and
 > cp/mv `-t/--target-directory` dest form bypassed the A7 writer parser. Same-family
 > addition: glob refspecs (`refs/heads/*`) on push are now blocked too.
+> Codex round 2 (all real, all fixed + suite-covered): closing `)` glued to the last token
+> (`(git reset --hard)`) — split on closing group delimiters too; `env -i`/`env -u NAME`
+> (and sudo/xargs) options before git defeated wrapper stripping — wrappers now consume
+> their options incl. arg-taking flags; and `git commit -m "-n"` false-blocked — the -n
+> scan now walks tokens like git's parser, skipping operands of value-taking options
+> (`-mn` = message "n" allowed; `-nm x` = no-verify blocked).
 
 | # | Sev | File | Bypass (verified) | Fix |
 |---|---|---|---|---|

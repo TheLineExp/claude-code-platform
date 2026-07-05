@@ -43,17 +43,28 @@ COMMAND_NOSTR=$(printf '%s' "$COMMAND" | perl -0777 -pe '
   }ge' 2>/dev/null)
 
 # GIT_SEGMENTS: one line per simple command that IS a git/gh invocation. The raw
-# command is split on separators (;, &&, ||, |, &, newline, $(, `, subshell/group
-# openers) OUTSIDE quotes; each segment is stripped of leading env assignments
-# (VAR=1 git …) and common wrappers (sudo/command/env/…), and git/gh global
+# command is split on separators — OPENING and CLOSING group delimiters both,
+# `(git reset ...)` must not leave `)` glued to the last token (PR #11 R2) —
+# OUTSIDE quotes; each segment is stripped of leading env assignments
+# (VAR=1 git …) and wrappers INCLUDING their options (`env -u NAME git …`,
+# `sudo -u root git …`, `xargs -n1 git …` all execute git — PR #11 R2; the
+# arg-taking wrapper flags are consumed with their argument), and git/gh global
 # options before the subcommand (-C dir, -c k=v, --no-pager, -R owner/repo) are
 # dropped so `git -C . push` still reads as `git push`. Hooks anchor their
 # patterns to `^git <subcommand>` against THESE lines, never against $COMMAND.
 _git_segments() {
   printf '%s' "$COMMAND_NOSTR" | perl -0777 -ne '
-    for my $seg (split /\|\||&&|[;|&\n(]|\$\(|`|\{[[:space:]]/) {
+    for my $seg (split /\|\||&&|[;|&\n()]|\$\(|`|\{[[:space:]]/) {
       $seg =~ s/^\s+//;
-      1 while $seg =~ s/^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+|sudo\s+|command\s+|builtin\s+|nohup\s+|time\s+|env\s+)//;
+      my $again = 1;
+      while ($again) {
+        $again = 0;
+        $again = 1 if $seg =~ s/^[A-Za-z_][A-Za-z0-9_]*=\S*\s+//;
+        $again = 1 if $seg =~ s/^(?:command|builtin|nohup|time)\s+(?:-\S+\s+)*//;
+        $again = 1 if $seg =~ s/^sudo\s+(?:-[ugUTRDChp]\s+\S+\s+|-\S+\s+)*//;
+        $again = 1 if $seg =~ s/^env\s+(?:(?:-[uCS]|--unset|--chdir)\s+\S+\s+|-\S+\s+|[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*//;
+        $again = 1 if $seg =~ s/^xargs\s+(?:-[IiEeLlnPsda]\s+\S+\s+|-\S+\s+)*//;
+      }
       next unless $seg =~ /^(?:git|gh)(?:\s|$)/;
       1 while $seg =~ s/^(git|gh)\s+(?:-[Cc]\s+\S+|-R\s+\S+|--(?:repo|git-dir|work-tree|namespace|exec-path)(?:=\S+|\s+\S+)?|--no-pager|--paginate|--bare|--literal-pathspecs)\s+/$1 /;
       print "$seg\n";
