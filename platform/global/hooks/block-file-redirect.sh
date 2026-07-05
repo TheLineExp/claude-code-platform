@@ -129,7 +129,16 @@ WRITER_TARGETS=$(HOOK_CMD="$COMMAND_EXEC" perl -e '
     my $cmd = shift @t; $cmd =~ s{.*/}{}; $cmd =~ s/^\\+//;
     if ($cmd eq "sed") {
       next unless grep { /^-i/ or /^--in-place/ } @t;
-      for my $a (@t) { print "sed\t$a\n" unless $a =~ /^-/; }
+      # -e/-f (and long forms) take a SCRIPT operand, not an edited file
+      # (PR #11 R7); attached forms (-escript/-fscript/--file=…) are `^-` and
+      # skipped as options. Remaining barewords are the actual target files.
+      my $skip = 0;
+      for my $a (@t) {
+        if ($skip) { $skip = 0; next; }
+        if ($a eq "-e" or $a eq "-f" or $a eq "--expression" or $a eq "--file") { $skip = 1; next; }
+        next if $a =~ /^-/;
+        print "sed\t$a\n";
+      }
     } elsif ($cmd eq "cp" or $cmd eq "mv") {
       # GNU -t/--target-directory names the DESTINATION explicitly (PR #11
       # review P2); when present, the positional args are all sources.

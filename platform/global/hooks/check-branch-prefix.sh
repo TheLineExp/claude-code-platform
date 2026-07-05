@@ -11,7 +11,7 @@ $NEEDS_GIT_CHECK || exit 0
 echo "$GIT_SEGMENTS" | grep -qE '^git[[:space:]]+commit([[:space:]]|$)' || exit 0
 
 # Resolve against the checkout the commit targets — `git -C <path> commit` (R4).
-EFFDIR=$(_seg_effdir 'commit'); EFFDIR="${EFFDIR:-.}"
+EFFDIR=$(_seg_effdir 'commit'); EFFDIR=$(_resolve_dir "${EFFDIR:-.}")
 
 # Global deployment: only enforce where the letsbuild workflow is active.
 _fleet_active "$EFFDIR" || exit 0

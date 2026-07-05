@@ -76,6 +76,14 @@ CLAUDE.mds. The fix landed on origin; your machine never pulled it. **Merging �
 > quoted-whole-token rule; and clustered attached `cp -vtsrc` (GNU `-v -t src`) evaded the
 > target-directory parse — now any short cluster containing `t` takes the attached remainder
 > (or next arg) as the destination. Suite: 187.
+> Codex round 7 (all real, all fixed + suite-covered): a leading `cd <dir>` moves the shell,
+> so `cd /main && git commit` ran on the protected checkout while EFFDIR stayed `.` — the
+> segmenter now tracks `cd` across `&&`/`;` and seeds EFFDIR from it; `git -c alias.X='commit
+> --no-verify' X …` hid the real verb behind an alias — COMMAND_EXEC expands the alias; and
+> `sed -i -f repo.sed /tmp/out` false-blocked (the -f SCRIPT was treated as an edit target)
+> — the writer lexer now skips `-e`/`-f` operands. A bogus/nonexistent `cd`/-C target no
+> longer fails the guard open: `_resolve_dir` falls back to the hook cwd when the target
+> isn't a real worktree. Suite: 194.
 >
 > **RESIDUALS (documented, not fixed — regex shell-parsing is inherently leaky):** (a) an
 > alternate-context path that both contains spaces AND is quoted (`git -C "/a b" commit`)

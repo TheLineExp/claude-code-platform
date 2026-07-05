@@ -45,6 +45,7 @@ make_repo() { # $1=dir $2=branch
   mkdir -p "$1/src"
   echo 'export const x = 1' > "$1/src/file.ts"
   echo 'export const y = 2' > "$1/src/my file.ts"
+  echo 's/a/b/' > "$1/src/edit.sed"
   git -C "$1" add -A
   $GITC -C "$1" commit -qm seed
 }
@@ -139,6 +140,9 @@ block "$H" "$FLEET_MASTER" 'if git commit -m "x"; then :; fi'          'R5: cont
 block "$H" "$FLEET_FEAT"   'while git push origin master; do :; done'  'R5: control keyword before push'
 block "$H" "$FLEET_FEAT"   'bash -c "git push origin master"'          'R5: bash -c payload'
 block "$H" "$FLEET_FEAT"   'sh -c "git push origin HEAD:staging"'      'R5: sh -c payload'
+block "$H" "$FLEET_FEAT"   'cd "'"$FLEET_MASTER"'" && git commit -m "x"' 'R7: cd into protected then commit'
+block "$H" "$FLEET_FEAT"   'cd "'"$FLEET_MASTER"'"; git push'          'R7: cd into protected then push'
+allow "$H" "$FLEET_FEAT"   'cd "'"$FLEET_FEAT"'" && git commit -m "x"' 'R7: cd into feature checkout is fine'
 block "$H" "$FLEET_FEAT" 'git push origin HEAD:staging'                  'baseline: HEAD:staging'
 block "$H" "$FLEET_FEAT" 'git push origin HEAD:refs/heads/staging'       'A3: fully-qualified refspec'
 block "$H" "$FLEET_FEAT" 'git push origin refs/heads/master'             'A3: fully-qualified source-less'
@@ -185,6 +189,7 @@ block "$H" "$FLEET_FEAT" 'bash -c "git commit --no-verify -m x"'        'R5: bas
 block "$H" "$FLEET_FEAT" 'if git commit -n -m "x"; then :; fi'          'R5: control keyword before commit'
 block "$H" "$FLEET_FEAT" 'git commit $'\''--no-verify'\'' -m "x"'        'R6: ANSI-C $'\''...'\'' quoted flag'
 block "$H" "$FLEET_FEAT" 'env '\''--split-string=git commit --no-verify -m x'\''' 'R6: quoted --split-string= token'
+block "$H" "$FLEET_FEAT" 'git -c alias.c='\''commit --no-verify'\'' c -m "x"' 'R7: -c alias hiding no-verify commit'
 allow "$H" "$FLEET_FEAT" 'git commit -am "x"'                            'FP guard: -am has no n'
 allow "$H" "$FLEET_FEAT" 'git commit -m "document --no-verify usage"'    'A9: flag literal inside -m'
 allow "$H" "$FLEET_FEAT" 'grep -rn -- --no-verify hooks/'                'A9: flag literal in grep'
@@ -313,6 +318,9 @@ allow "$H" "$FLEET_FEAT" 'cp src/file.ts /tmp/out.ts'                    'allowe
 allow "$H" "$FLEET_FEAT" 'mv src/file.ts /tmp/out.ts'                    'allowed: move OUT of repo (read+delete, not write)'
 allow "$H" "$FLEET_FEAT" "sed -i 's/1/2/' /tmp/outside.txt"              'allowed: sed -i outside repo'
 allow "$H" "$FLEET_FEAT" "sed -n 'p' src/file.ts"                        'allowed: sed without -i'
+allow "$H" "$FLEET_FEAT" 'sed -i -f src/edit.sed /tmp/outside.txt'       'R7: sed -f script is not an edit target'
+allow "$H" "$FLEET_FEAT" 'sed -i -e s/a/b/ /tmp/outside.txt'             'R7: sed -e expression, edit outside repo'
+block "$H" "$FLEET_FEAT" 'sed -i -f /tmp/x.sed src/file.ts'             'R7: sed -f but real edit target in repo'
 allow "$H" "$FLEET_FEAT" 'echo x > /tmp/y.txt'                           'allowed: redirect outside repo'
 allow "$H" "$FLEET_FEAT" 'grep -n export src/file.ts'                    'allowed: read-only'
 allow "$H" "$FLEET_FEAT" 'echo "cp a src/file.ts"'                       'A9-class: writer literal in echo'

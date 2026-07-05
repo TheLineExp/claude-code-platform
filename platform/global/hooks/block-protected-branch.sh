@@ -23,7 +23,7 @@ PROT_ALT=$(echo "$PROTECTED_BRANCHES" | tr ' ' '|' | sed 's/|$//')
 while IFS=$'\t' read -r effdir seg; do
   [ -n "$seg" ] || continue
   echo "$seg" | grep -qE '^git[[:space:]]+(commit|push|merge)([[:space:]]|$)' || continue
-  effdir="${effdir:-.}"
+  effdir=$(_resolve_dir "${effdir:-.}")
   _fleet_shaped "$effdir" || continue
 
   BRANCH=$(git -C "$effdir" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")

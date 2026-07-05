@@ -59,6 +59,12 @@ _flatten_exec() {
       }{
         my $t = dq($1); $t =~ s/^(?:--split-string=|-S)//; $t;
       }gex
+      # `git -c alias.NAME=VALUE NAME …` runs VALUE as the subcommand — expand it
+      # so the guarded verb (commit/push/…) is visible, not hidden behind the
+      # alias name (PR #11 R7).
+      || s{
+        \bgit\s+-c\s+alias\.([A-Za-z][\w-]*)=("(?:[^"\\]|\\.)*"|\x27[^\x27]*\x27|\S+)\s+\1(?=\s|$)
+      }{ "git " . dq($2) }gex
     );
   ' 2>/dev/null
 }
@@ -103,8 +109,19 @@ COMMAND_NOSTR=$(printf '%s' "$COMMAND_EXEC" | perl -0777 -pe '
 # --no-pager, -R owner/repo) are dropped so `git -C x push` reads as `git push`.
 _git_segments() {
   printf '%s' "$COMMAND_NOSTR" | perl -0777 -ne '
+    # resolve a (possibly relative) path against the running cwd
+    sub _join { my ($base,$p) = @_; return $p if $p =~ m{^/}; return $p if $base eq "."; return "$base/$p"; }
+    my $cwd = ".";   # tracks `cd <dir>` across `&&`/`;` segments (PR #11 R7)
     for my $seg (split /\|\||&&|[;|&\n()]|\$\(|`|\{[[:space:]]/) {
       $seg =~ s/^\s+//;
+      # A leading `cd <dir>` moves the shell for the commands that follow, so a
+      # later bare `git commit`/`push` runs THERE, not in the hook cwd (PR #11 R7).
+      if ($seg =~ /^cd\s+(?:--\s+)?("[^"]*"|\x27[^\x27]*\x27|\S+)/) {
+        my $t = $1; $t =~ s/^["\x27]//; $t =~ s/["\x27]$//;
+        $cwd = _join($cwd, $t) if $t ne "" && $t ne "-";
+        next;
+      }
+      next if $seg =~ /^cd(\s|$)/;   # `cd` home, or a blanked spaced arg
       my $again = 1;
       while ($again) {
         $again = 0;
@@ -120,17 +137,18 @@ _git_segments() {
       $seg =~ s/^\\+//;
       $seg =~ s{^\S*/(git|gh)(?=\s|$)}{$1};
       next unless $seg =~ /^(?:git|gh)(?:\s|$)/;
-      my $dir = ".";
+      my $dir = $cwd;   # default to the cd-tracked cwd; -C overrides it
       $again = 1;
       while ($again) {
         $again = 0;
         # Alternate-context global options set the effective checkout (PR #11
         # R4/R5): -C <path> is a directory; --work-tree <path> is the tree;
-        # --git-dir <path> is the .git, whose parent is the checkout. (-c is
-        # config key=value, NOT a directory — case-sensitive.)
-        if ($seg =~ s/^(git|gh)\s+-C(?:=|\s+)(\S+)\s+/$1 /)            { $dir = $2; $again = 1; next; }
-        if ($seg =~ s/^(git|gh)\s+--work-tree(?:=|\s+)(\S+)\s+/$1 /)   { $dir = $2; $again = 1; next; }
-        if ($seg =~ s/^(git|gh)\s+--git-dir(?:=|\s+)(\S+)\s+/$1 /)     { my $g = $2; $g =~ s{/\.git/?$}{}; $dir = ($g eq "" ? "/" : $g); $again = 1; next; }
+        # --git-dir <path> is the .git, whose parent is the checkout. A relative
+        # target resolves against the cd-tracked cwd. (-c is config key=value,
+        # NOT a directory — case-sensitive.)
+        if ($seg =~ s/^(git|gh)\s+-C(?:=|\s+)(\S+)\s+/$1 /)            { $dir = _join($cwd, $2); $again = 1; next; }
+        if ($seg =~ s/^(git|gh)\s+--work-tree(?:=|\s+)(\S+)\s+/$1 /)   { $dir = _join($cwd, $2); $again = 1; next; }
+        if ($seg =~ s/^(git|gh)\s+--git-dir(?:=|\s+)(\S+)\s+/$1 /)     { my $g = $2; $g =~ s{/\.git/?$}{}; $dir = ($g eq "" ? "/" : _join($cwd, $g)); $again = 1; next; }
         $again = 1 if $seg =~ s/^(git|gh)\s+(?:-c\s+\S+|-R\s+\S+|--(?:repo|namespace|exec-path)(?:=\S+|\s+\S+)?|--no-pager|--paginate|--bare|--literal-pathspecs)\s+/$1 /;
       }
       print "$dir\t$seg\n";
@@ -176,6 +194,18 @@ fi
 # registered row in .claude/active-work.md (a `| wX | … |` / `| xN | … |` / `| s | … |`
 # line). Repos without registered work (the platform repo, one-off checkouts) → no-op.
 # Only the worktree hooks call this; universal git guards ignore it and run everywhere.
+# _resolve_dir <candidate>: echo it if it is a real git worktree, else `.`
+# (the hook cwd). A `cd`/-C target that doesn't resolve — bogus, nonexistent, or
+# not a repo — must NOT disable the guard (fail toward the current repo; PR #11 R7).
+_resolve_dir() {
+  local d="${1:-.}"
+  if [ "$d" != "." ] && git -C "$d" rev-parse --git-dir >/dev/null 2>&1; then
+    printf '%s' "$d"
+  else
+    printf '.'
+  fi
+}
+
 # _seg_effdir <subcommand>: the effective directory (`git -C <path>`) of the
 # first git segment whose subcommand matches, else `.`. Lets the stateful commit
 # guards resolve branch/registration at the checkout the command targets (R4).
