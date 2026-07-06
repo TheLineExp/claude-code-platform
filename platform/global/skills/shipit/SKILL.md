@@ -188,7 +188,7 @@ diff the same way the doctrine ship-gate greps for customer-contact — if ANY l
 1b is REQUIRED and not skippable:
 ```bash
 git diff origin/staging...HEAD | rg -in \
-  -e 'refund|payment|stripe|charge|payout|settl|voucher|balance|invoice|amount(Cents)?|price|deposit' \
+  -e 'refund|payment|stripe|webhook|charge|payout|settl|voucher|balance|invoice|amount(Cents)?|price|deposit' \
   -e 'prisma\.\w+\.(update|updateMany|upsert|delete|deleteMany|create)|\$executeRaw|\$queryRaw' \
   -e 'status\s*[:=]|\btransition|CONFIRMED|CANCELL|PENDING|\bACTIVE\b|REFUND|CAPTUR|VOID' \
   -e 'authenticate|authoriz|requireRole|requirePartnerRole|isManagerForFleet|optionalAuth' \

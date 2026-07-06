@@ -87,6 +87,25 @@ Every grep below is a starting point — tighten it so a match means what you th
    - action-bar branch vs change-status-modal branch vs pencil-edit branch (state relabels!)
    - the flag-OFF path, not just the flag-ON path (the default in prod is usually OFF)
 
+3b. **Known-helper parity (a hand-rolled path where a shared helper exists is a parity miss).**
+   The recurring audit class isn't only a *missed* sibling — it's a *diverging* one: the new code
+   re-implements what a documented helper already does, so it drifts from every sibling that uses
+   the helper. For each of these, find the sibling that does it right and confirm the diff matches:
+   - **Error surfacing — `apiErrorText`.** For every new/changed frontend `catch` block, does it
+     surface the failure through the shared `apiErrorText(err)` helper (the way sibling handlers
+     do), or does it hand-roll `error.response.data` / `err.message`? Hand-rolling drops the
+     server's structured message and diverges from the twin surface. `rg -nF apiErrorText
+     frontend/src` to find the canonical usage, then compare.
+   - **`??` vs `||` on intentionally-falsy values.** Any new `x || <default>` where `x` can
+     legitimately be `0`, `''`, `false`, or `[]` (amount, count, a boolean flag, an empty list)
+     silently replaces the real value — the sibling/old code used `??` or passed it through. This
+     is the same `||`-vs-`??` trap called out under Legacy data, applied to the changed lines.
+   - **React-Query invalidation.** For each new `useMutation` / `mutate` / `mutateAsync`, does its
+     `onSuccess` invalidate the SAME query keys the sibling mutations invalidate
+     (`rg -n "invalidateQueries" frontend/src` near the twin mutation)? A mutation that writes a
+     model but skips `queryClient.invalidateQueries` leaves every list/detail surface reading that
+     model stale — the twin-surface bug in cache form. BLOCK on a missing/mismatched invalidation.
+
 4. **Config & deploy surfaces.** If the change touches env vars, branding, service wiring,
    or build args: check docker-compose*, Dockerfile*, .github/workflows/*, .env.example,
    IaC/deploy scripts, and CI secrets references. Also: is any new migration registered in
