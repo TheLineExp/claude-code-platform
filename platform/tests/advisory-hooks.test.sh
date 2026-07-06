@@ -32,6 +32,7 @@ case "$GH_MODE" in
   open)     [ "$1" = pr ] && [ "$2" = list ] && { echo "[{\"number\":9,\"state\":\"OPEN\",\"baseRefName\":\"staging\",\"url\":\"http://x/9\"}]"; exit 0; } ;;
   merged)   [ "$1" = pr ] && [ "$2" = list ] && { echo "[{\"number\":9,\"state\":\"MERGED\",\"baseRefName\":\"master\",\"url\":\"http://x/9\"}]"; exit 0; } ;;
   closed)   [ "$1" = pr ] && [ "$2" = list ] && { echo "[{\"number\":9,\"state\":\"CLOSED\",\"baseRefName\":\"master\",\"url\":\"http://x/9\"}]"; exit 0; } ;;
+  fail)     [ "$1" = pr ] && [ "$2" = list ] && { echo "gh: could not authenticate" >&2; exit 4; } ;;   # network/auth failure
 esac
 exit 0
 SH
@@ -99,6 +100,19 @@ echo "$out" | grep -q '"decision":"block"' && ok "stop: multi-PR, one unverified
 clear_markers; mark_pass o r 7; mark_pass o r 9
 out=$(stop_decision "$T" false)
 [ -z "$out" ] && ok "stop: multi-PR, both verified → allow" || bad "stop: multi-PR both verified should allow" "out=$out"
+
+# CROSS-REPO collision: a /pull/ URL claim for repoA#9 with a fresh marker only for a
+# DIFFERENT repo's #9 → BLOCK. PR numbers collide across the 3 fleet repos; a repo-
+# qualified claim must match the marker's repo (Codex P1).
+clear_markers; mark_pass otherowner otherrepo 9
+mk_transcript "$T" "Ready to merge: https://github.com/theowner/therepo/pull/9"
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: cross-repo #9 marker → block" || bad "stop: cross-repo collision" "out=$out"
+
+# same URL claim WITH a same-repo marker → ALLOW
+clear_markers; mark_pass theowner therepo 9
+out=$(stop_decision "$T" false)
+[ -z "$out" ] && ok "stop: URL claim, same-repo marker → allow" || bad "stop: same-repo URL should allow" "out=$out"
 
 # no PR reference (plain 'done') → ALLOW even with no marker
 clear_markers
@@ -179,6 +193,11 @@ GH_MODE=merged; out=$(feed 'git push origin feature/w1-x')
 # push, PR CLOSED unmerged → 🚨 exit 2
 GH_MODE=closed; out=$(feed 'git push origin feature/w1-x')
 { echo "$out" | grep -q 'rc=2' && echo "$out" | grep -q 'CLOSED unmerged'; } && ok "cfl: push closed-PR → warn(2)" || bad "cfl: closed PR" "$out"
+
+# push, but `gh pr list` FAILS (auth/network/timeout, non-zero rc) → must stay SILENT,
+# not cry a false "NO open PR" orphan (Codex P2: a lookup failure ≠ a successful []).
+GH_MODE=fail; out=$(feed 'git push origin feature/w1-x')
+{ echo "$out" | grep -q 'rc=0' && [ "$(echo "$out" | grep -c 'NO open PR')" = 0 ]; } && ok "cfl: gh lookup fails → silent(0)" || bad "cfl: gh-fail false orphan" "$out"
 
 # commit while standing ON a deploy branch → out of scope, silent exit 0
 git -C "$FX" checkout -q -b master 2>/dev/null || git -C "$FX" checkout -q master

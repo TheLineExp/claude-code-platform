@@ -116,11 +116,16 @@ function stopHook() {
   // "closes #7" tails, and a fresh marker for that unrelated number would then
   // falsely satisfy the claim (outside-review P1 — the multi-PR shipit flow where
   // staging #7 was verified but prod #9 is the actual claim).
-  const prNums = new Set();
-  for (const mm of text.matchAll(/\/pull\/(\d+)/g)) prNums.add(mm[1]);
-  for (const mm of text.matchAll(/\bPR\s*#?(\d+)/gi)) prNums.add(mm[1]);
+  //
+  // A full `/owner/repo/pull/N` URL carries its REPO — the marker must match that
+  // repo, because PR numbers collide across the three fleet repos (Codex P1: a fresh
+  // marker for V3#9 must NOT satisfy a reservations#9 claim). A bare `PR #N` has no
+  // repo, so it can only be matched on number (best-effort, unchanged).
+  const prRefs = [];   // {repo:'owner/repo'|null, pr:'N'}
+  for (const mm of text.matchAll(/github\.com\/([^/\s]+)\/([^/\s]+)\/pull\/(\d+)/gi)) prRefs.push({ repo: `${mm[1]}/${mm[2]}`, pr: mm[3] });
+  for (const mm of text.matchAll(/\bPR\s*#?(\d+)/gi)) prRefs.push({ repo: null, pr: mm[1] });
 
-  if (hasFreshPass(prNums)) return; // verified — allow the claim
+  if (hasFreshPass(prRefs)) return; // verified — allow the claim
 
   const reason =
     'PR-READY GATE (shipit Step 5b) — you are about to report a PR ready/done/shipped, ' +
@@ -132,27 +137,31 @@ function stopHook() {
   process.stdout.write(JSON.stringify({ decision: 'block', reason }));
 }
 
-// EVERY specifically-named PR must have its OWN fresh PASS marker. A claim naming
+// EVERY named PR ref must be satisfied by its OWN fresh PASS marker. A claim naming
 // several PRs ("#7 and #9 are both ready") must not ride through on one sibling's
-// marker — that is the exact staging-verified / prod-unverified multi-PR risk
-// (outside-review P2.1). If the claim carried PR context but no extractable number
-// ("the staging PR is ready"), prNums is empty → block and make the model name the
-// PR + verify, rather than pass on an unrelated fresh marker (its P2 pair).
-function hasFreshPass(prNums) {
-  if (prNums.size === 0) return false;
+// marker — the staging-verified / prod-unverified multi-PR risk (outside-review P2.1).
+// A repo-qualified ref (from a /pull/ URL) requires a SAME-REPO marker — a cross-repo
+// #N collision must not satisfy it (Codex P1). A bare ref matches on number alone.
+// If the claim carried PR context but no extractable ref ("the staging PR is ready"),
+// prRefs is empty → block and make the model name + verify the PR (its P2 pair).
+function hasFreshPass(prRefs) {
+  if (!prRefs.length) return false;
   let markers;
   try { markers = fs.readdirSync(MARKER_DIR); } catch { return false; }
   const now = Date.now();
-  const passed = new Set();
+  const fresh = [];   // {repo:'owner/repo'|null, pr:'N'}
   for (const f of markers) {
     if (!f.endsWith('.json')) continue;
     let mk;
     try { mk = JSON.parse(fs.readFileSync(path.join(MARKER_DIR, f), 'utf8')); } catch { continue; }
     if (mk.verdict !== 'PASS') continue;
     if (now - (mk.ts || 0) > FRESH_MS) continue;
-    passed.add(String(mk.pr));
+    fresh.push({ repo: (mk.owner && mk.repo) ? `${mk.owner}/${mk.repo}` : null, pr: String(mk.pr) });
   }
-  for (const p of prNums) if (!passed.has(p)) return false;  // any un-verified named PR blocks
+  for (const ref of prRefs) {
+    const ok = fresh.some(m => m.pr === ref.pr && (ref.repo == null || m.repo === ref.repo));
+    if (!ok) return false;   // any un-verified (or wrong-repo) named PR blocks
+  }
   return true;
 }
 

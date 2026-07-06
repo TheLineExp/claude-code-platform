@@ -74,6 +74,11 @@ case "$BRANCH" in main|master|staging) exit 0 ;; esac
 
 # Most-recent PR for this branch, any state (one gh call; parsed with python3).
 PR_JSON=$(_to 20 gh pr list --head "$BRANCH" --state all --json number,state,baseRefName,url --limit 1 2>/dev/null)
+# A lookup FAILURE (timeout / auth / network — non-zero rc) is NOT the same as a
+# successful empty result: without this guard an empty PR_JSON drops into the "no PR"
+# path and cries a false orphan whenever GitHub is briefly unavailable. Stay silent
+# on failure (fail-open); a successful `[]` still flows through as genuine "no PR".
+[ $? -eq 0 ] || exit 0
 PARSE=$(printf '%s' "$PR_JSON" | python3 -c '
 import sys, json
 try: a = json.load(sys.stdin)
