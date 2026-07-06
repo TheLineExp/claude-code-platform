@@ -260,11 +260,17 @@ for core in "${CORES[@]}"; do
     run block "$hook" "$FEAT" "$pre"$'\n'"$word $rest" "F9-arith"
   done
   run block "$hook" "$FEAT" "(( 1<<2 )); $word $rest" "F9-arith"   # arithmetic COMMAND then danger
+  # A command substitution INSIDE arithmetic still executes in bash — its inner command must
+  # be scanned, not dropped with the span (Codex P2: `$(( $(git push --force) + 1 ))`).
+  run block "$hook" "$FEAT" "echo \$(( \$($word $rest) + 1 ))" "F9-arith"   # $( … ) inside $(( ))
+  run block "$hook" "$FEAT" "echo \$(( \`$word $rest\` + 1 ))"  "F9-arith"   # backtick inside $(( ))
 done
 # INVERSE — a real heredoc body that merely CONTAINS arithmetic still drops as data
-# (allow), and bare arithmetic with no dangerous command must not false-positive.
+# (allow), bare arithmetic with no dangerous command must not false-positive, and a SAFE
+# command sub inside arithmetic must not block.
 run allow block-destructive-git.sh  "$FEAT" $'git commit -F - <<EOF\necho $((1<<2)) git push --force\nEOF' "F9-arith"
 run allow block-protected-branch.sh "$FEAT" 'echo $((1<<2)) and $((3>>1)) done'                            "F9-arith"
+run allow block-destructive-git.sh  "$FEAT" 'echo $(( $(date +%s) + 1 ))'                                  "F9-arith"
 
 # ---------------------------------------------------------------------------
 echo

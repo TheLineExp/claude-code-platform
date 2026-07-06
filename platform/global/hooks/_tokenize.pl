@@ -129,6 +129,25 @@ sub read_redir_target {
   return read_word($s, $i);
 }
 
+# Find the end of a command substitution `$( … )`. $i starts just past the `$(`; returns
+# ($inner_string, $index_past_matching_close). Balances nested `(`/`$(` and skips quotes /
+# backticks so a `)` inside them does not close early. Used to scan a command sub embedded
+# in an arithmetic span (where the surrounding `$(( … ))` is otherwise inert).
+sub _cmdsub {
+  my ($s, $i) = @_; my $n = length $s; my $start = $i; my $depth = 1;
+  while ($i < $n) {
+    my $c = substr($s, $i, 1);
+    if    ($c eq "'") { my $j = index($s, "'", $i + 1); $i = ($j < 0 ? $n : $j + 1); }
+    elsif ($c eq '"') { (undef, $i) = read_dq($s, $i + 1); }
+    elsif ($c eq '`') { my $j = index($s, '`', $i + 1); $i = ($j < 0 ? $n : $j + 1); }
+    elsif ($c eq '$' && substr($s, $i + 1, 1) eq '(') { $depth++; $i += 2; }
+    elsif ($c eq '(') { $depth++; $i++; }
+    elsif ($c eq ')') { $depth--; $i++; return (substr($s, $start, $i - 1 - $start), $i) if $depth == 0; }
+    else  { $i++; }
+  }
+  return (substr($s, $start, $i - $start), $i);   # unterminated → to end
+}
+
 sub scan {
   my ($s) = @_; my @items; my $i = 0; my $n = length $s;
   my @pending;   # heredoc delimiters awaiting their body: [$delim, $dash]
@@ -173,12 +192,31 @@ sub scan {
     # opening parens); scan to the matching `))`.
     if (($c eq '$' && substr($s, $i + 1, 2) eq '((') || substr($s, $i, 2) eq '((') {
       $i += ($c eq '$' ? 3 : 2);
-      my $depth = 2;
-      while ($i < $n && $depth > 0) {
+      my $adepth = 2;                                        # the two opening parens
+      while ($i < $n && $adepth > 0) {
         my $ch = substr($s, $i, 1);
-        if    ($ch eq '(') { $depth++; }
-        elsif ($ch eq ')') { $depth--; }
-        $i++;
+        # Nested arithmetic first (so its inner is not mis-scanned as a command).
+        if (($ch eq '$' && substr($s, $i + 1, 2) eq '((') || substr($s, $i, 2) eq '((') {
+          $i += ($ch eq '$' ? 3 : 2); $adepth += 2; next;
+        }
+        # A nested command substitution `$( … )` still EXECUTES in bash even inside arithmetic
+        # (`$(( $(git push --force) + 1 ))`), so scan its inner COMMANDS rather than dropping
+        # them (Codex P2). Its own parens are balanced by _cmdsub, not counted against $adepth.
+        if ($ch eq '$' && substr($s, $i + 1, 1) eq '(') {
+          my ($inner, $ni) = _cmdsub($s, $i + 2);
+          push @items, ['sep', '$('], scan($inner), ['sep', ')'];
+          $i = $ni; next;
+        }
+        if ($ch eq '`') {                                    # backtick command substitution
+          my $j = index($s, '`', $i + 1); $j = $n if $j < 0;
+          push @items, ['sep', '`'], scan(substr($s, $i + 1, $j - $i - 1)), ['sep', '`'];
+          $i = ($j < $n ? $j + 1 : $n); next;
+        }
+        if ($ch eq "'") { my $j = index($s, "'", $i + 1); $i = ($j < 0 ? $n : $j + 1); next; }  # opaque operand
+        if ($ch eq '"') { (undef, $i) = read_dq($s, $i + 1); next; }
+        if    ($ch eq '(') { $adepth++; $i++; next; }
+        elsif ($ch eq ')') { $adepth--; $i++; next; }
+        $i++;   # inert arithmetic operator / operand char (`<<`, `>>`, digits, +, …)
       }
       next;
     }

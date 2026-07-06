@@ -199,6 +199,12 @@ block block-destructive-git.sh  "$FLEET_FEAT" $'(( 1<<2 )); git push --force ori
 block block-destructive-git.sh  "$FLEET_FEAT" $'echo $(( (1<<2) + 3 ))\ngit reset --hard'           'arith nested-paren $(( (x)+y )): real reset after → block'
 block block-file-redirect.sh    "$FLEET_FEAT" $'echo $((2>>1))\nsed -i s/a/b/ src/file.ts'          'arith right-shift $((2>>1)): real writer after → block'
 allow block-destructive-git.sh  "$FLEET_FEAT" 'echo $((1<<2)) done'                                  'arith-expansion alone: no dangerous cmd → allow'
+# A command substitution INSIDE arithmetic still EXECUTES in bash — its inner command must be
+# scanned, not dropped with the span (Codex P2: consuming the whole $(( … )) span swallowed it).
+block block-destructive-git.sh  "$FLEET_FEAT" 'echo $(( $(git push --force origin main >/dev/null; echo 1) + 1 ))' 'cmdsub inside $(( )): real force → block'
+block block-protected-branch.sh "$FLEET_FEAT" 'echo $(( $(git push origin master) + 0 ))'            'cmdsub inside $(( )): real protected push → block'
+block block-destructive-git.sh  "$FLEET_FEAT" 'echo $(( `git push --force origin x` + 1 ))'          'backtick inside $(( )): real force → block'
+allow block-destructive-git.sh  "$FLEET_FEAT" 'echo $(( $(date +%s) + 1 ))'                          'SAFE cmdsub inside $(( )): no danger → allow'
 block "$H" "$FLEET_MASTER" 'git commit -m "x"'                           'commit while standing on master'
 block "$H" "$FLEET_MASTER" 'git push'                                    'bare push while standing on master'
 block "$H" "$FLEET_MASTER" 'git merge feature/w1-x'                      'merge while standing on master'
