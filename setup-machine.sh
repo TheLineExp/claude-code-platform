@@ -15,7 +15,10 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# pwd -P resolves symlinks to the PHYSICAL path so SCRIPT_DIR-derived paths (notably the stored
+# backlog-location pointer) are byte-identical whether invoked via the ~/vt symlink or the real
+# checkout — otherwise --diff falsely reports [DIFFERS] backlog-location across the two faces.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 GLOBAL_SRC="$SCRIPT_DIR/platform/global"
 
 # ── colour helpers ────────────────────────────────────────────────────────────
