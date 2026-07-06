@@ -219,6 +219,29 @@ run block block-protected-branch.sh "$FEAT" "git -C \"$MASTER_SP\" commit -m x" 
 run block block-protected-branch.sh "$FEAT" "cd \"$MASTER_SP\" && git commit -m x"   "F7-spaced"
 run block block-protected-branch.sh "$FEAT" "git -C \"$MASTER_SP\" push"             "F7-spaced"
 
+# (11) FAKE-OPENER grammar (F8) — a `<<WORD` that is NOT a real heredoc opener
+# because it is QUOTED or inside a COMMENT. It must never queue a phantom delimiter
+# that swallows the real dangerous command on the following line. This class lived
+# in NEITHER this fuzzer NOR the curated suite until the outside-reviewer found it
+# (the regex pre-strip was quote/comment-blind); the tokenizer now handles heredocs
+# with full quote/comment state, so every fake opener leaves the next line exposed.
+FAKE_OPENERS=(
+  'echo x # <<EOF'          # <<WORD in a comment
+  'echo '\''<<EOF'\'''      # <<WORD single-quoted
+  'echo "<<EOF"'            # <<WORD double-quoted
+  'git log --grep "<<EOF"'  # <<WORD inside a quoted flag argument (non-adversarial)
+)
+for core in "${CORES[@]}"; do
+  IFS='|' read -r id hook word rest <<< "$core"
+  for opener in "${FAKE_OPENERS[@]}"; do
+    run block "$hook" "$FEAT" "$opener"$'\n'"$word $rest" "F8-fakeopener"
+  done
+done
+# INVERSE — a REAL heredoc body carrying the same literal must still ALLOW (data,
+# not a command): guards against over-correcting the fix into a false-positive.
+run allow block-destructive-git.sh  "$FEAT" $'git commit -F - <<EOF\ngit push --force origin x\nEOF' "F8-fakeopener"
+run allow block-protected-branch.sh "$FEAT" $'git commit -F - <<EOF\ngit push origin master\nEOF'    "F8-fakeopener"
+
 # ---------------------------------------------------------------------------
 echo
 echo "hooks: $HOOKS_DIR"
@@ -227,7 +250,7 @@ awk '
   $2=="leak" { leak[$1]++; totL++ }
   $2=="fp"   { fp[$1]++;   totF++ }
   END {
-    order="F1-wrapper F1-cmdword F1-combo F2-flag F2-refspec F3-context F4-falsepos F5-writer F6-nested F7-spaced";
+    order="F1-wrapper F1-cmdword F1-combo F2-flag F2-refspec F3-context F4-falsepos F5-writer F6-nested F7-spaced F8-fakeopener";
     n=split(order,f," ");
     printf "%-24s %7s %7s %7s\n","FAMILY","TOTAL","LEAKS","FALSE+";
     for(i=1;i<=n;i++){k=f[i]; printf "%-24s %7d %7d %7d\n",k,tot[k]+0,leak[k]+0,fp[k]+0}

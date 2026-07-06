@@ -87,6 +87,19 @@ printf '{"owner":"o","repo":"r","pr":9,"verdict":"FAIL","ts":%s}' "$(node -e 'pr
 out=$(stop_decision "$T" false)
 echo "$out" | grep -q '"decision":"block"' && ok "stop: FAIL marker → block" || bad "stop: FAIL marker" "out=$out"
 
+# MULTI-PR claim, only ONE named PR verified → BLOCK. Every named PR must have its own
+# fresh marker; a sibling's marker must not carry the unverified one through (outside-
+# review P2.1 — staging #7 verified, prod #9 is the actual unverified claim).
+clear_markers; mark_pass o r 7
+mk_transcript "$T" "PR #7 and PR #9 are both ready to merge."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: multi-PR, one unverified → block" || bad "stop: multi-PR one unverified" "out=$out"
+
+# same multi-PR claim with BOTH named PRs verified → ALLOW
+clear_markers; mark_pass o r 7; mark_pass o r 9
+out=$(stop_decision "$T" false)
+[ -z "$out" ] && ok "stop: multi-PR, both verified → allow" || bad "stop: multi-PR both verified should allow" "out=$out"
+
 # no PR reference (plain 'done') → ALLOW even with no marker
 clear_markers
 mk_transcript "$T" "All done — the refactor is complete and tests pass."

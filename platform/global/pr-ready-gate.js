@@ -132,24 +132,28 @@ function stopHook() {
   process.stdout.write(JSON.stringify({ decision: 'block', reason }));
 }
 
-// A fresh PASS marker for at least one SPECIFICALLY-named PR. If the claim carried
-// PR context but no extractable number ("the staging PR is ready"), we cannot tie it
-// to a marker — block and make the model name the PR + verify, rather than pass on an
-// unrelated fresh marker (outside-review P2 — pairs with the P1 above).
+// EVERY specifically-named PR must have its OWN fresh PASS marker. A claim naming
+// several PRs ("#7 and #9 are both ready") must not ride through on one sibling's
+// marker — that is the exact staging-verified / prod-unverified multi-PR risk
+// (outside-review P2.1). If the claim carried PR context but no extractable number
+// ("the staging PR is ready"), prNums is empty → block and make the model name the
+// PR + verify, rather than pass on an unrelated fresh marker (its P2 pair).
 function hasFreshPass(prNums) {
   if (prNums.size === 0) return false;
   let markers;
   try { markers = fs.readdirSync(MARKER_DIR); } catch { return false; }
   const now = Date.now();
+  const passed = new Set();
   for (const f of markers) {
     if (!f.endsWith('.json')) continue;
     let mk;
     try { mk = JSON.parse(fs.readFileSync(path.join(MARKER_DIR, f), 'utf8')); } catch { continue; }
     if (mk.verdict !== 'PASS') continue;
     if (now - (mk.ts || 0) > FRESH_MS) continue;
-    if (prNums.has(String(mk.pr))) return true;
+    passed.add(String(mk.pr));
   }
-  return false;
+  for (const p of prNums) if (!passed.has(p)) return false;  // any un-verified named PR blocks
+  return true;
 }
 
 function lastAssistantText(transcript) {

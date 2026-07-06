@@ -179,6 +179,15 @@ block block-file-redirect.sh    "$FLEET_FEAT" $'cat <<<EOF\nsed -i s/a/b/ src/fi
 # and the real trailing command is dropped → bypass.
 block block-destructive-git.sh  "$FLEET_FEAT" $'git commit -F - <<EOF\r\nm\r\nEOF\r\ngit push -f origin main'       'heredoc CRLF: real force after close → block'
 allow block-destructive-git.sh  "$FLEET_FEAT" $'git commit -F - <<EOF\r\ngit push --force\r\nEOF\r'                 'heredoc CRLF: danger in body → allow'
+# FAKE openers — a `<<WORD` that is QUOTED or in a COMMENT is NOT a heredoc, so it must
+# not queue a phantom delimiter that swallows the real command after it (outside-review
+# P1 on this branch: the regex pre-strip was quote/comment-blind; the tokenizer isn't).
+block block-destructive-git.sh  "$FLEET_FEAT" $'echo hi # <<EOF\ngit push --force origin master'                    'fake heredoc in COMMENT: real force after → block'
+block block-protected-branch.sh "$FLEET_FEAT" $'echo hi # <<EOF\ngit push origin master'                            'fake heredoc in COMMENT: real protected push after → block'
+block block-destructive-git.sh  "$FLEET_FEAT" $'echo \x27<<EOF\x27\ngit push --force origin master'                 'fake heredoc SINGLE-quoted: real force after → block'
+block block-destructive-git.sh  "$FLEET_FEAT" $'echo "<<EOF"\ngit push --force origin master'                       'fake heredoc DOUBLE-quoted: real force after → block'
+block block-file-redirect.sh    "$FLEET_FEAT" $'echo \x27<<EOF\x27\nsed -i s/a/b/ src/file.ts'                      'fake heredoc SINGLE-quoted: real writer after → block'
+block block-destructive-git.sh  "$FLEET_FEAT" $'git log --grep "fix <<HEAD bug"\ngit push --force origin master'    'non-adversarial <<WORD in quoted grep arg: real force after → block'
 block "$H" "$FLEET_MASTER" 'git commit -m "x"'                           'commit while standing on master'
 block "$H" "$FLEET_MASTER" 'git push'                                    'bare push while standing on master'
 block "$H" "$FLEET_MASTER" 'git merge feature/w1-x'                      'merge while standing on master'

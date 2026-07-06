@@ -43,15 +43,25 @@ cd "$DIR" 2>/dev/null || exit 0
 command -v gh >/dev/null 2>&1 || exit 0     # no gh → can't check landing; stay silent
 
 # This is a PostToolUse hook that must NEVER wedge a session, but it makes network
-# calls (gh, git fetch). Cap each with a timeout when one is available so a hung
-# remote can't block after every push. macOS ships no `timeout`; fall back to a
-# plain run there (no regression vs. the un-timed original), preferring gtimeout
-# (coreutils) if present.
+# calls (gh, git fetch). Cap each with a timeout so a hung remote/auth-prompt can't
+# stall every commit. Stock macOS ships neither `timeout` nor `gtimeout`; perl IS a
+# hard dependency of these hooks (_tokenize.pl), so fall back to its alarm(): fork
+# the command and TERM it if it overruns. Portable, no coreutils required.
 _to() { # _to <secs> <cmd...>
   local t="$1"; shift
   if   command -v timeout  >/dev/null 2>&1; then timeout  "$t" "$@"
   elif command -v gtimeout >/dev/null 2>&1; then gtimeout "$t" "$@"
-  else "$@"; fi
+  else
+    perl -e '
+      my $t = shift;
+      my $pid = fork();
+      if (!defined $pid) { exec @ARGV; exit 127; }      # fork failed → run un-timed (no regression)
+      if ($pid == 0)     { exec @ARGV or exit 127; }    # child → the real command
+      local $SIG{ALRM} = sub { kill "TERM", $pid; };
+      alarm $t; waitpid($pid, 0); my $rc = $?; alarm 0;
+      exit($rc & 127 ? 124 : ($rc >> 8));               # 124 = timed out (killed), else child rc
+    ' "$t" "$@"
+  fi
 }
 
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)

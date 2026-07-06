@@ -131,10 +131,34 @@ sub read_redir_target {
 
 sub scan {
   my ($s) = @_; my @items; my $i = 0; my $n = length $s;
+  my @pending;   # heredoc delimiters awaiting their body: [$delim, $dash]
   while ($i < $n) {
     my $c = substr($s, $i, 1);
     if ($c eq ' ' || $c eq "\t") { $i++; next; }
-    if ($c eq "\n" || $c eq "\r") { push @items, ['sep', ';']; $i++; next; }
+    # An unquoted `#` at a word boundary starts a comment to end-of-line. read_word
+    # folds any `#` INSIDE a word (`foo#bar`, quoted `"a#b"`) into that word, so the
+    # loop only lands on `#` in true command position — bash's comment rule. This is
+    # what keeps a `# <<EOF` from ever queuing a heredoc (outside-review P1).
+    if ($c eq '#') { $i++ while $i < $n && substr($s, $i, 1) ne "\n"; next; }
+    if ($c eq "\n" || $c eq "\r") {
+      push @items, ['sep', ';'];
+      $i++;
+      $i++ if $c eq "\r" && $i < $n && substr($s, $i, 1) eq "\n";   # CRLF = one terminator
+      # A heredoc opener queued on the line just ended pulls the FOLLOWING lines in as
+      # BODY (stdin data, never commands) up to the closing delimiter — consumed HERE,
+      # inside the quote/comment-aware scanner, so a `<<WORD` that was quoted or in a
+      # comment was never queued and cannot swallow real commands (the regex pre-strip's
+      # false-NEGATIVE class). One chokepoint, one parser (the whole point of the rewrite).
+      while (@pending && $i < $n) {
+        my ($d, $dash) = @{$pending[0]};
+        my $eol = index($s, "\n", $i); $eol = $n if $eol < 0;
+        my $line = substr($s, $i, $eol - $i); $line =~ s/\r$//;
+        my $t = $line; $t =~ s/^\t+// if $dash;   # <<- ignores leading TABS on the close
+        $i = ($eol < $n ? $eol + 1 : $n);
+        shift @pending if $t eq $d;               # close = the delimiter ALONE (bash exact)
+      }
+      next;
+    }
     my $two = substr($s, $i, 2);
     if ($two eq '&&' || $two eq '||') { push @items, ['sep', $two]; $i += 2; next; }
     if ($c eq ';') { push @items, ['sep', ';']; $i++; next; }
@@ -150,7 +174,15 @@ sub scan {
     if ($rest =~ /^&>>?/) { my $op = $&; $i += length $op; my ($t, $ni) = read_redir_target($s, $i); push @items, ['redir', $t] if $t ne ""; $i = $ni; next; }
     if ($rest =~ /^(\d*)>&/) { $i += length($1) + 2; my ($t, $ni) = read_redir_target($s, $i); $i = $ni; next; }   # fd dup — skip
     if ($rest =~ /^(\d*)(>>|>\||>)/) { $i += length($1) + length($2); my ($t, $ni) = read_redir_target($s, $i); push @items, ['redir', $t] if $t ne ""; $i = $ni; next; }
-    if ($rest =~ /^(\d*)(<<<|<<|<)/) { $i += length($1) + length($2); my ($t, $ni) = read_redir_target($s, $i); $i = $ni; next; }   # input — skip target
+    if ($rest =~ /^(\d*)<<</) { $i += length($1) + 3; my ($t, $ni) = read_redir_target($s, $i); $i = $ni; next; }   # here-string <<< — one word, no body
+    if ($rest =~ /^(\d*)<<(-?)/) {                                         # heredoc opener — queue the delimiter; body consumed at the next newline
+      $i += length($1) + 2 + length($2);
+      $i++ while $i < $n && substr($s, $i, 1) =~ /[ \t]/;                  # `<< WORD` — spaces allowed before the delimiter
+      my ($delim, $ni) = read_word($s, $i); $i = ($ni > $i ? $ni : $i + 1);
+      push @pending, [$delim, ($2 eq '-')] if $delim ne '';               # quoted `<<'EOF'`/`<<"EOF"` dequoted by read_word (bash matches the unquoted value)
+      next;
+    }
+    if ($rest =~ /^(\d*)</) { $i += length($1) + 1; my ($t, $ni) = read_redir_target($s, $i); $i = $ni; next; }   # plain input redirect — skip target
     if ($c eq '|') { push @items, ['sep', '|']; $i++; next; }
     if ($c eq '&') { push @items, ['sep', '&']; $i++; next; }
     my ($w, $ni) = read_word($s, $i);
