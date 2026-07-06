@@ -115,7 +115,17 @@ function stopHook() {
   // prose without a PR never trips it (Codex: bare-done claims with PR context).
   const readinessRe = /(ready to (merge|ship)|good to (merge|go|ship)|safe to (merge|ship)|(is|are|now)\s+ready\b|\bdone\b|✅[^\n]*\b(ready|done|shipped)\b|\bshipped\b|all checks?\s+(are\s+)?green|0 unresolved)/i;
   const prContextRe = /(github\.com\/[^\s)]+\/pull\/\d+|\bPR\s*#?\d+|\bpull request\b|staging PR|production PR|prod PR)/i;
-  if (!readinessRe.test(text) || !prContextRe.test(text)) return;
+  // Don't trip on a truthful NEGATIVE report ("PR #N is not ready to merge; checks are
+  // failing") — it carries PR context + a readiness substring but is the OPPOSITE of a
+  // ready claim, and blocking it stops the model from accurately reporting the blocked
+  // state (Codex P2). Neutralize negated readiness phrases FIRST, then test what remains:
+  // a mixed "#9 not ready but #7 is ready to merge" still matches on the positive #7, so
+  // this narrows false-blocks WITHOUT opening a false-pass. prContext is tested on the
+  // original text (a negated readiness phrase doesn't remove the PR reference).
+  const deNegated = text.replace(
+    /\b(not|no longer|never|isn'?t|aren'?t|won'?t|can'?t|cannot|wasn'?t|weren'?t)\s+(yet\s+)?((safe|good|ready|able|clear)\s+to\s+\w+|ready\b|done\b|shipped\b|merged\b|green\b|good\s+to\s+(go|merge|ship))/gi,
+    ' ');
+  if (!readinessRe.test(deNegated) || !prContextRe.test(text)) return;
 
   // Which PRs does the claim name? Only STRONG references — a `/pull/N` URL or an
   // explicit `PR #N`. A bare `#N` is NOT harvested: it scoops issue refs and

@@ -125,8 +125,13 @@ case "$PR_STATE" in
     echo "ℹ️  fix-landing: committed $HEAD_SHA on '$BRANCH' (PR #$PR_NUM open) but it is NOT pushed yet — push so the fix reaches the PR." >&2
     exit 2 ;;
   MERGED)
-    # Did the merge actually include HEAD? (the exact near-miss check)
-    _to 20 git fetch -q origin "$PR_BASE" 2>/dev/null
+    # Did the merge actually include HEAD? (the exact near-miss check). The base ref must
+    # be FRESH first: a failed fetch (timeout/auth/network) would leave origin/$PR_BASE
+    # stale or absent, and the is-ancestor test below would then fall through to a FALSE
+    # "ORPHANED FIX" alarm. Fail-open (this hook's rule) — if the fetch didn't succeed,
+    # stay silent rather than trust an unverified base ref (Codex P2, mirrors the PR-list
+    # lookup guard above).
+    _to 20 git fetch -q origin "$PR_BASE" 2>/dev/null || exit 0
     if git merge-base --is-ancestor HEAD "origin/$PR_BASE" 2>/dev/null; then
       echo "✓ fix-landing: $HEAD_SHA already in '$PR_BASE' via merged PR #$PR_NUM."
       exit 0

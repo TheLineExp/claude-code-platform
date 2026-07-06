@@ -33,6 +33,7 @@ case "$GH_MODE" in
   nopr)     [ "$sub" = "pr list" ] && { echo '[]'; exit 0; } ;;
   open)     [ "$sub" = "pr list" ] && { echo "[{\"number\":9,\"state\":\"OPEN\",\"baseRefName\":\"staging\",\"url\":\"https://github.com/o/r/pull/9\"}]"; exit 0; } ;;
   merged)   [ "$sub" = "pr list" ] && { echo "[{\"number\":9,\"state\":\"MERGED\",\"baseRefName\":\"master\",\"url\":\"https://github.com/o/r/pull/9\"}]"; exit 0; } ;;
+  merged_nofetch) [ "$sub" = "pr list" ] && { echo "[{\"number\":9,\"state\":\"MERGED\",\"baseRefName\":\"ghost-base\",\"url\":\"https://github.com/o/r/pull/9\"}]"; exit 0; } ;;   # base not on remote → fetch fails
   closed)   [ "$sub" = "pr list" ] && { echo "[{\"number\":9,\"state\":\"CLOSED\",\"baseRefName\":\"master\",\"url\":\"https://github.com/o/r/pull/9\"}]"; exit 0; } ;;
   fail)     [ "$sub" = "pr list" ] && { echo "gh: could not authenticate" >&2; exit 4; } ;;   # network/auth failure
   # verify-mode paths: `pr checks` green; `api graphql --paginate` emits one unresolved
@@ -221,9 +222,23 @@ GH_MODE=nopr; out=$(feed 'git push origin feature/w1-x')
 GH_MODE=open; out=$(feed 'git push origin feature/w1-x')
 { echo "$out" | grep -q 'rc=0' && echo "$out" | grep -q 'OPEN PR #9'; } && ok "cfl: push open-PR on remote → ok" || bad "cfl: push open-PR" "$out"
 
-# push, PR MERGED but HEAD not in base (base 'master' doesn't exist in bare) → 🚨 orphan, exit 2
+# A REAL merged-orphan needs the base to EXIST on the remote (so the fetch SUCCEEDS) yet
+# NOT contain HEAD. Build an independent 'master' on the bare (orphan root — none of
+# feature/w1-x's history), so the merged PR's base fetch succeeds and is-ancestor is
+# false → 🚨 orphan, exit 2. (An UNfetchable base is a DIFFERENT case — asserted next.)
+git -C "$FX" checkout -q --orphan master-seed
+git -C "$FX" rm -rfq . >/dev/null 2>&1 || true
+echo m > "$FX/m"; git -C "$FX" add -A; $GITC -C "$FX" commit -qm master-root
+git -C "$FX" push -q origin master-seed:master 2>/dev/null
+git -C "$FX" checkout -qf feature/w1-x
 GH_MODE=merged; out=$(feed 'git push origin feature/w1-x')
 { echo "$out" | grep -q 'rc=2' && echo "$out" | grep -q 'ORPHANED FIX'; } && ok "cfl: push merged-PR excl HEAD → orphan(2)" || bad "cfl: merged orphan" "$out"
+
+# MERGED PR but the base ref is UNFETCHABLE (timeout/auth/deleted base) → we CANNOT tell
+# whether HEAD landed, so fail-open silent(0) — never a false ORPHANED FIX (Codex P2,
+# mirrors the gh-lookup-fail guard). Base 'ghost-base' isn't on the bare → fetch fails.
+GH_MODE=merged_nofetch; out=$(feed 'git push origin feature/w1-x')
+{ echo "$out" | grep -q 'rc=0' && [ "$(echo "$out" | grep -c 'ORPHANED FIX')" = 0 ]; } && ok "cfl: merged base unfetchable → silent(0)" || bad "cfl: merged fetch-fail false orphan" "$out"
 
 # push, PR CLOSED unmerged → 🚨 exit 2
 GH_MODE=closed; out=$(feed 'git push origin feature/w1-x')
