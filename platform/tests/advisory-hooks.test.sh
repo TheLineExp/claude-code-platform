@@ -30,11 +30,14 @@ cat > "$STUB/gh" <<'SH'
 # form so check-fix-landed can parse owner/repo for the pr-ready invalidate call.
 sub="$1 $2"
 case "$GH_MODE" in
-  nopr)     [ "$sub" = "pr list" ] && { echo '[]'; exit 0; } ;;
-  open)     [ "$sub" = "pr list" ] && { echo "[{\"number\":9,\"state\":\"OPEN\",\"baseRefName\":\"staging\",\"url\":\"https://github.com/o/r/pull/9\"}]"; exit 0; } ;;
-  merged)   [ "$sub" = "pr list" ] && { echo "[{\"number\":9,\"state\":\"MERGED\",\"baseRefName\":\"master\",\"url\":\"https://github.com/o/r/pull/9\"}]"; exit 0; } ;;
-  merged_nofetch) [ "$sub" = "pr list" ] && { echo "[{\"number\":9,\"state\":\"MERGED\",\"baseRefName\":\"ghost-base\",\"url\":\"https://github.com/o/r/pull/9\"}]"; exit 0; } ;;   # base not on remote → fetch fails
-  closed)   [ "$sub" = "pr list" ] && { echo "[{\"number\":9,\"state\":\"CLOSED\",\"baseRefName\":\"master\",\"url\":\"https://github.com/o/r/pull/9\"}]"; exit 0; } ;;
+  # pr-list now goes through gh's own --jq, so the stub emits the SAME @tsv rows --jq would
+  # ([number, state, baseRefName, url]); `[]` -> no output. URLs stay real github.com form so
+  # check-fix-landed can parse owner/repo for the pr-ready invalidate call.
+  nopr)     [ "$sub" = "pr list" ] && { exit 0; } ;;                                                  # [] -> --jq emits nothing
+  open)     [ "$sub" = "pr list" ] && { printf '9\tOPEN\tstaging\thttps://github.com/o/r/pull/9\n';    exit 0; } ;;
+  merged)   [ "$sub" = "pr list" ] && { printf '9\tMERGED\tmaster\thttps://github.com/o/r/pull/9\n';   exit 0; } ;;
+  merged_nofetch) [ "$sub" = "pr list" ] && { printf '9\tMERGED\tghost-base\thttps://github.com/o/r/pull/9\n'; exit 0; } ;;   # base not on remote → fetch fails
+  closed)   [ "$sub" = "pr list" ] && { printf '9\tCLOSED\tmaster\thttps://github.com/o/r/pull/9\n';   exit 0; } ;;
   fail)     [ "$sub" = "pr list" ] && { echo "gh: could not authenticate" >&2; exit 4; } ;;   # network/auth failure
   # verify-mode paths: `pr checks` green; `api graphql --paginate` emits one unresolved
   # count PER PAGE (two pages here) so the sum exercises pagination.

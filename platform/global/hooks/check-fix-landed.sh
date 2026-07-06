@@ -72,21 +72,18 @@ HEAD_SHA=$(git rev-parse --short HEAD 2>/dev/null)
 # guards' concern, not this one. Only feature branches get orphan-checked.
 case "$BRANCH" in main|master|staging) exit 0 ;; esac
 
-# Most-recent PR for this branch, any state (one gh call; parsed with python3).
-PR_JSON=$(_to 20 gh pr list --head "$BRANCH" --state all --json number,state,baseRefName,url --limit 1 2>/dev/null)
+# Most-recent PR for this branch, any state — ONE gh call, parsed by gh's OWN embedded
+# jq (`--jq`). No python3: a machine without python3 used to leave PR_NUM empty AFTER a
+# successful lookup and cry a false "no PR" orphan (Codex P2). gh is already required
+# (checked above), so its jq is always present. `.[0]|select(.)` emits nothing for an
+# empty `[]` (genuine no-PR) and exactly one @tsv row when a PR exists.
+PARSE=$(_to 20 gh pr list --head "$BRANCH" --state all --json number,state,baseRefName,url --limit 1 \
+  --jq '.[0] | select(.) | [.number, .state, .baseRefName, .url] | @tsv' 2>/dev/null)
 # A lookup FAILURE (timeout / auth / network — non-zero rc) is NOT the same as a
-# successful empty result: without this guard an empty PR_JSON drops into the "no PR"
+# successful empty result: without this guard an empty PARSE drops into the "no PR"
 # path and cries a false orphan whenever GitHub is briefly unavailable. Stay silent
-# on failure (fail-open); a successful `[]` still flows through as genuine "no PR".
+# on failure (fail-open); a successful empty result still flows through as genuine "no PR".
 [ $? -eq 0 ] || exit 0
-PARSE=$(printf '%s' "$PR_JSON" | python3 -c '
-import sys, json
-try: a = json.load(sys.stdin)
-except Exception: a = []
-if a:
-    p = a[0]
-    print("\t".join((str(p["number"]), p["state"], p["baseRefName"], p["url"])))
-' 2>/dev/null)
 IFS=$'\t' read -r PR_NUM PR_STATE PR_BASE PR_URL <<< "$PARSE"
 
 # A PUSH moves the PR head → any PR-Ready PASS marker written before it now certifies a
