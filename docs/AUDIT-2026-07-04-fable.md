@@ -73,6 +73,16 @@ CLAUDE.mds. The fix landed on origin; your machine never pulled it. **Merging �
 > `./setup-machine.sh`, confirm `--diff` clean, and run the fuzzer against the live
 > hooks (`HOOKS_DIR="$HOME/.claude/hooks"`) — live still runs the pre-audit porous
 > copies until then.
+> **✅ DONE 2026-07-06:** synced via `./setup-machine.sh` (pre-sync backup
+> `~/.claude/backups/2026-07-06-093034`). Independently re-verified with
+> `./setup-machine.sh --diff`: **all guard hooks + `_tokenize.pl` + `_parse-input.sh`
+> byte-identical live↔canonical** (53 IDENTICAL; the sole `[DIFFERS]` is
+> `backlog-location`, the by-design machine-local path — not drift). Suites re-run
+> against LIVE (`HOOKS_DIR="$HOME/.claude/hooks"`) green: `hook-bypass-suite.sh`
+> **217/0**, `hook-grammar-fuzz.sh` **CLEAN at 434**. Original A1–A6 P1 bypasses
+> re-driven through the live hooks all BLOCK; B1 `--force-with-lease` correctly
+> ALLOW. Live now runs the `feature/mk-theme-e-plus-hook-hardening` HEAD (ahead of
+> `main`, strictly more-closed, not a downgrade) until PR #17 merges to `main`.
 
 > **STATUS 2026-07-04 (batch #2 executed):** A1–A11 + B1 all fixed in the canonical hooks.
 > Root cause across A1/A2/A3/A9/A10: guards matched the RAW command string — fixed by
