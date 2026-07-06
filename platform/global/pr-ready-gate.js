@@ -108,60 +108,72 @@ function stopHook() {
   const text = lastAssistantText(transcript);
   if (!text) return;
 
-  // Fire only on a genuine PR-readiness CLAIM: a readiness state AND a PR reference must
-  // co-occur — so ordinary "done" in unrelated prose never trips it.
-  // `\bdone\b` (not just `is done`) so a bare "Done — PR #9 is open" is caught — it only
-  // fires when a PR reference ALSO co-occurs (prContextRe below), so unrelated "done"
-  // prose without a PR never trips it (Codex: bare-done claims with PR context).
-  // Match a readiness CLAIM (an assertion the PR is ready), NOT verification EVIDENCE.
-  // "all checks green" / "0 unresolved" were REMOVED: they are facts a verify run prints and
-  // appear verbatim in BLOCKED reports too ("checks are failing, 0 unresolved") — treating
-  // them as claims caused a cascade of false-blocks on truthful failure reports (Codex, 3
-  // rounds). A ready claim uses a VERB (ready / done / shipped / good-to-merge); a bare
-  // evidence line with no verb is not the dangerous "merge it" assertion this gate exists to
-  // catch, and the real backstop is the marker/verify + human merge.
-  const readinessRe = /(ready to (merge|ship)|good to (merge|go|ship)|safe to (merge|ship)|(is|are|now)\s+ready\b|\bdone\b|✅[^\n]*\b(ready|done|shipped)\b|\bshipped\b)/i;
+  // A "claim" = a readiness VERB (ready / done / shipped / good-to-merge). Evidence fragments
+  // ("all checks green", "0 unresolved") are NOT claims — they appear verbatim in BLOCKED
+  // reports, so gating on them false-blocked truthful failure reports. "done" is tightened to
+  // a COMPLETION sense: "done <gerund>" / "done for now" / "done with …" are ACTIVITIES, not a
+  // PR-done claim (Codex: a bare "Done investigating for now" in a blocked report).
+  const readinessRe = /(ready to (merge|ship)|good to (merge|go|ship)|safe to (merge|ship)|(is|are|now)\s+ready\b|\bdone\b(?!\s+(?:\w+ing\b|for\s+(?:now|today|the\s+day)|with\b))|✅[^\n]*\b(ready|done|shipped)\b|\bshipped\b)/i;
   const prContextRe = /(github\.com\/[^\s)]+\/pull\/\d+|\bPR\s*#?\d+|\bpull request\b|staging PR|production PR|prod PR)/i;
-  // Don't trip on a truthful NEGATIVE report ("PR #N is not ready to merge; checks are
-  // failing") — it carries PR context + a readiness substring but is the OPPOSITE of a
-  // ready claim, and blocking it stops the model from accurately reporting the blocked
-  // state (Codex P2). Neutralize negated readiness phrases FIRST, then test what remains:
-  // a mixed "#9 not ready but #7 is ready to merge" still matches on the positive #7, so
-  // this narrows false-blocks WITHOUT opening a false-pass. prContext is tested on the
-  // original text (a negated readiness phrase doesn't remove the PR reference).
-  // Neutralize a negated readiness CLAIM so a truthful "PR #N is not ready to merge" does not
-  // trip the gate, while a mixed "#9 not ready but #7 is ready to merge" still matches on the
-  // positive #7 (no false-pass). Only the CLAIM verbs need negating — evidence signals were
-  // removed from readinessRe above, so their negations ("not all checks green") are now moot.
-  const deNegated = text.replace(
+
+  // Neutralize a NEGATED claim ("PR #N is not ready to merge") so a truthful blocked-state
+  // report is not gated; a mixed "#9 not ready but #7 is ready to merge" keeps the positive #7.
+  const deNegate = (s) => s.replace(
     /\b(not|no longer|never|isn'?t|aren'?t|won'?t|can'?t|cannot|wasn'?t|weren'?t)\s+(?:(?:yet|fully|quite|totally|entirely|completely|necessarily|really|actually)\s+){0,3}((safe|good|ready|able|clear)\s+to\s+\w+|ready\b|done\b|shipped\b|merged\b|good\s+to\s+(go|merge|ship))/gi,
     ' ');
-  if (!readinessRe.test(deNegated) || !prContextRe.test(text)) return;
 
-  // Which PRs does the claim name? Only STRONG references — a `/pull/N` URL or an
-  // explicit `PR #N`. A bare `#N` is NOT harvested: it scoops issue refs and
-  // "closes #7" tails, and a fresh marker for that unrelated number would then
-  // falsely satisfy the claim (outside-review P1 — the multi-PR shipit flow where
-  // staging #7 was verified but prod #9 is the actual claim).
-  //
-  // A full `/owner/repo/pull/N` URL carries its REPO — the marker must match that
-  // repo, because PR numbers collide across the three fleet repos (Codex P1: a fresh
-  // marker for V3#9 must NOT satisfy a reservations#9 claim). A bare `PR #N` has no
-  // repo, so it can only be matched on number (best-effort, unchanged).
-  const prRefs = [];   // {repo:'owner/repo'|null, pr:'N'}
-  for (const mm of text.matchAll(/github\.com\/([^/\s]+)\/([^/\s]+)\/pull\/(\d+)/gi)) prRefs.push({ repo: `${mm[1]}/${mm[2]}`, pr: mm[3] });
-  for (const mm of text.matchAll(/\bPR\s*#?(\d+)/gi)) prRefs.push({ repo: null, pr: mm[1] });
+  // STRONG PR refs only — a `/pull/N` URL (carries its repo) or an explicit `PR #N`. A bare
+  // `#N` is not harvested (it scoops issue refs / "closes #7" tails). A `/owner/repo/pull/N`
+  // URL requires a SAME-repo marker (numbers collide across the 3 fleet repos, Codex P1); a
+  // bare `PR #N` matches on number alone.
+  const harvest = (s) => {
+    const refs = [];
+    for (const mm of s.matchAll(/github\.com\/([^/\s]+)\/([^/\s]+)\/pull\/(\d+)/gi)) refs.push({ repo: `${mm[1]}/${mm[2]}`, pr: mm[3] });
+    for (const mm of s.matchAll(/\bPR\s*#?(\d+)/gi)) refs.push({ repo: null, pr: mm[1] });
+    return refs;
+  };
 
-  if (hasFreshPass(prRefs)) return; // verified — allow the claim
+  // SENTENCE-SCOPE the association: a readiness verb and a PR ref bind into a claim only when
+  // they share the SAME sentence. This stops cross-sentence bleeding — a bare "done" in one
+  // sentence no longer attaches to a PR in another (Codex: "…not ready. Done investigating."),
+  // and a mixed report no longer demands a marker for the PR it says is NOT ready (Codex:
+  // "#9 is not ready … #7 is ready to merge"). Split on sentence enders FOLLOWED BY whitespace
+  // (so a '.' inside a URL never splits) or newlines.
+  const required = [];               // refs a claim explicitly names in its own sentence
+  let unassociatedClaim = false;     // a claim verb whose own sentence names no PR
+  for (const s of text.split(/[.!?;]+\s+|[\n\r]+/)) {
+    if (!readinessRe.test(deNegate(s))) continue;
+    const refs = harvest(s);
+    if (refs.length) required.push(...refs);
+    else unassociatedClaim = true;
+  }
 
-  const reason =
-    'PR-READY GATE (shipit Step 5b) — you are about to report a PR ready/done/shipped, ' +
-    'but there is no FRESH verification marker for it. A stale "ready" claim is a defect. ' +
-    'Run: `node ~/.claude/hooks/pr-ready-gate.js verify <owner/repo> <pr#>` — it checks ' +
-    '`gh pr checks` + the unresolved-review-thread count and only passes on "green + 0 ' +
-    'unresolved". If it BLOCKS, fix the failing checks / unresolved threads, push, and ' +
-    're-verify. Only report ready after it prints PR-READY VERIFIED.';
-  process.stdout.write(JSON.stringify({ decision: 'block', reason }));
+  if (!required.length && !unassociatedClaim) return;   // no readiness claim at all
+
+  // A claim whose sentence named no PR: fall back to EVERY PR ref in the message and require
+  // each verified — biased to BLOCK, so a real "ready to merge" split from its PR ref across
+  // sentences cannot slip. If no extractable PR but PR CONTEXT is present ("the staging PR is
+  // ready"), block to force naming. No PR context at all → the verb was unrelated prose.
+  if (unassociatedClaim) {
+    const all = harvest(text);
+    if (all.length) required.push(...all);
+    else if (prContextRe.test(text)) { blockReady(); return; }
+    else return;
+  }
+
+  if (hasFreshPass(required)) return;   // every claimed PR has its own fresh PASS marker
+  blockReady();
+
+  function blockReady() {
+    const reason =
+      'PR-READY GATE (shipit Step 5b) — you are about to report a PR ready/done/shipped, ' +
+      'but there is no FRESH verification marker for it. A stale "ready" claim is a defect. ' +
+      'Run: `node ~/.claude/hooks/pr-ready-gate.js verify <owner/repo> <pr#>` — it checks ' +
+      '`gh pr checks` + the unresolved-review-thread count and only passes on "green + 0 ' +
+      'unresolved". If it BLOCKS, fix the failing checks / unresolved threads, push, and ' +
+      're-verify. Only report ready after it prints PR-READY VERIFIED.';
+    process.stdout.write(JSON.stringify({ decision: 'block', reason }));
+  }
 }
 
 // EVERY named PR ref must be satisfied by its OWN fresh PASS marker. A claim naming

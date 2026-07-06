@@ -190,6 +190,48 @@ mk_transcript "$T" "The staging PR is ready to merge."
 out=$(stop_decision "$T" false)
 echo "$out" | grep -q '"decision":"block"' && ok "stop: PR context, no number → block" || bad "stop: P2 no-number auto-pass" "out=$out"
 
+# ── SENTENCE-SCOPING + negation (Codex rounds on the NL readiness matcher) ──────────────
+# A truthful "not ready" report must NOT block (thread 7).
+clear_markers
+mk_transcript "$T" "PR #9 is not ready to merge; 7 unresolved threads remain."
+out=$(stop_decision "$T" false)
+[ -z "$out" ] && ok "stop: negated 'not ready' report → allow" || bad "stop: neg not-ready" "out=$out"
+
+# Evidence fragments ("0 unresolved") inside a BLOCKED report are not a claim (threads A + rd4).
+mk_transcript "$T" "PR #9 is not ready: checks are failing, 0 unresolved review threads."
+out=$(stop_decision "$T" false)
+[ -z "$out" ] && ok "stop: blocked report w/ 0-unresolved evidence → allow" || bad "stop: evidence-in-blocked" "out=$out"
+
+# A bare 'done' in a DIFFERENT sentence from the (not-ready) PR must NOT attach to it (thread X).
+mk_transcript "$T" "PR #9 is not ready: checks are failing. Done investigating for now."
+out=$(stop_decision "$T" false)
+[ -z "$out" ] && ok "stop: cross-sentence 'done investigating' → allow" || bad "stop: cross-sentence done" "out=$out"
+
+# MIXED report — #9 not ready, #7 ready+VERIFIED → allow; must NOT require #9's marker (thread Y).
+clear_markers; mark_pass o r 7
+mk_transcript "$T" "PR #9 is not ready: checks are failing. PR #7 is ready to merge."
+out=$(stop_decision "$T" false)
+[ -z "$out" ] && ok "stop: mixed report, only the ready PR required (verified) → allow" || bad "stop: mixed requires not-ready PR" "out=$out"
+
+# Same mixed report but the ready PR is UNVERIFIED → block (on #7 only).
+clear_markers
+mk_transcript "$T" "PR #9 is not ready: checks are failing. PR #7 is ready to merge."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: mixed report, ready PR unverified → block" || bad "stop: mixed unverified should block" "out=$out"
+
+# FALSE-PASS GUARD: a readiness verb split from its PR ref across sentences must still block
+# (the unassociated-claim fallback requires every named PR verified — safe direction).
+clear_markers
+mk_transcript "$T" "Finished PR #17. It is ready to merge."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: cross-sentence claim+ref, unverified → block" || bad "stop: split claim false-pass" "out=$out"
+
+# 'done <gerund>' is an ACTIVITY, not a completion claim, even with a same-sentence PR (thread X class).
+clear_markers
+mk_transcript "$T" "Done reviewing PR #9 for now."
+out=$(stop_decision "$T" false)
+[ -z "$out" ] && ok "stop: 'done reviewing PR #9' (activity) → allow" || bad "stop: done-gerund same-sentence" "out=$out"
+
 # malformed transcript → fail open (ALLOW, no crash)
 out=$(printf '{"transcript_path":"/nope","session_id":"s"}' | node "$GATE" 2>/dev/null); rc=$?
 { [ -z "$out" ] && [ "$rc" -eq 0 ]; } && ok "stop: missing transcript → fail open" || bad "stop: fail open" "out=$out rc=$rc"
