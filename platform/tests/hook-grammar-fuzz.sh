@@ -242,6 +242,30 @@ done
 run allow block-destructive-git.sh  "$FEAT" $'git commit -F - <<EOF\ngit push --force origin x\nEOF' "F8-fakeopener"
 run allow block-protected-branch.sh "$FEAT" $'git commit -F - <<EOF\ngit push origin master\nEOF'    "F8-fakeopener"
 
+# (12) ARITHMETIC-vs-HEREDOC grammar (F9) — `<<`/`>>` inside `$(( … ))` or `(( … ))` are C
+# shift operators, NOT heredoc openers. bash rejects a command inside arithmetic
+# (`((echo hi))` is a syntax error), so a dangerous command AFTER the arithmetic must
+# survive tokenizing. Codex P2: `echo $((1<<2))` was misread as a `1<<2` heredoc whose
+# body swallowed the next line's real force-push. Cross each core with a shift-bearing
+# arithmetic prefix (expansion forms on their own line; the command form via `;`).
+ARITH_PREFIXES=(
+  'echo $((1<<2))'          # arithmetic EXPANSION, left shift
+  'echo $(( (1<<2) + 3 ))'  # nested parens inside the expansion
+  'echo $((8>>1))'          # right shift (would-be `>>` redirect if mis-scanned)
+  'x=$((1<<4))'             # expansion inside an assignment word
+)
+for core in "${CORES[@]}"; do
+  IFS='|' read -r id hook word rest <<< "$core"
+  for pre in "${ARITH_PREFIXES[@]}"; do
+    run block "$hook" "$FEAT" "$pre"$'\n'"$word $rest" "F9-arith"
+  done
+  run block "$hook" "$FEAT" "(( 1<<2 )); $word $rest" "F9-arith"   # arithmetic COMMAND then danger
+done
+# INVERSE — a real heredoc body that merely CONTAINS arithmetic still drops as data
+# (allow), and bare arithmetic with no dangerous command must not false-positive.
+run allow block-destructive-git.sh  "$FEAT" $'git commit -F - <<EOF\necho $((1<<2)) git push --force\nEOF' "F9-arith"
+run allow block-protected-branch.sh "$FEAT" 'echo $((1<<2)) and $((3>>1)) done'                            "F9-arith"
+
 # ---------------------------------------------------------------------------
 echo
 echo "hooks: $HOOKS_DIR"
@@ -250,7 +274,7 @@ awk '
   $2=="leak" { leak[$1]++; totL++ }
   $2=="fp"   { fp[$1]++;   totF++ }
   END {
-    order="F1-wrapper F1-cmdword F1-combo F2-flag F2-refspec F3-context F4-falsepos F5-writer F6-nested F7-spaced F8-fakeopener";
+    order="F1-wrapper F1-cmdword F1-combo F2-flag F2-refspec F3-context F4-falsepos F5-writer F6-nested F7-spaced F8-fakeopener F9-arith";
     n=split(order,f," ");
     printf "%-24s %7s %7s %7s\n","FAMILY","TOTAL","LEAKS","FALSE+";
     for(i=1;i<=n;i++){k=f[i]; printf "%-24s %7d %7d %7d\n",k,tot[k]+0,leak[k]+0,fp[k]+0}

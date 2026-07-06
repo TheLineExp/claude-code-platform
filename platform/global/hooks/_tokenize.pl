@@ -162,6 +162,26 @@ sub scan {
     my $two = substr($s, $i, 2);
     if ($two eq '&&' || $two eq '||') { push @items, ['sep', $two]; $i += 2; next; }
     if ($c eq ';') { push @items, ['sep', ';']; $i++; next; }
+    # Arithmetic expansion `$(( … ))` and arithmetic command `(( … ))` are a VALUE / a test,
+    # never a command list — and `<<`/`>>`/`<`/`>`/`&`/`|` inside them are C operators, not
+    # heredocs/redirects/pipes/backgrounding. bash tells them apart from command-substitution
+    # `$( ( …` and nested subshells `( ( …` by the DOUBLED paren with NO space, and rejects a
+    # real command inside (`((echo hi))` is a syntax error), so consuming the whole BALANCED
+    # span inertly is bash-faithful AND cannot hide a command. Without this, `echo $((1<<2))`
+    # (or `(( 1<<2 ))`) is misread as a `1<<2` heredoc opener that swallows the following
+    # line's real `git push --force` as heredoc body (Codex P2). Depth starts at 2 (both
+    # opening parens); scan to the matching `))`.
+    if (($c eq '$' && substr($s, $i + 1, 2) eq '((') || substr($s, $i, 2) eq '((') {
+      $i += ($c eq '$' ? 3 : 2);
+      my $depth = 2;
+      while ($i < $n && $depth > 0) {
+        my $ch = substr($s, $i, 1);
+        if    ($ch eq '(') { $depth++; }
+        elsif ($ch eq ')') { $depth--; }
+        $i++;
+      }
+      next;
+    }
     if ($c eq '$' && substr($s, $i + 1, 1) eq '(') { push @items, ['sep', '$(']; $i += 2; next; }
     if ($c eq '`') { push @items, ['sep', '`']; $i++; next; }
     if ($c eq '(') { push @items, ['sep', '(']; $i++; next; }

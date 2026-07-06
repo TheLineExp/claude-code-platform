@@ -188,6 +188,17 @@ block block-destructive-git.sh  "$FLEET_FEAT" $'echo \x27<<EOF\x27\ngit push --f
 block block-destructive-git.sh  "$FLEET_FEAT" $'echo "<<EOF"\ngit push --force origin master'                       'fake heredoc DOUBLE-quoted: real force after → block'
 block block-file-redirect.sh    "$FLEET_FEAT" $'echo \x27<<EOF\x27\nsed -i s/a/b/ src/file.ts'                      'fake heredoc SINGLE-quoted: real writer after → block'
 block block-destructive-git.sh  "$FLEET_FEAT" $'git log --grep "fix <<HEAD bug"\ngit push --force origin master'    'non-adversarial <<WORD in quoted grep arg: real force after → block'
+# FAKE openers via ARITHMETIC — `<<`/`>>` inside `$(( … ))` or `(( … ))` are C shift
+# operators, not heredoc openers. bash rejects a real command inside arithmetic
+# (`((echo hi))` is a syntax error), so a dangerous command AFTER the arithmetic must
+# survive tokenizing (Codex P2: `echo $((1<<2))` was misread as a `1<<2` heredoc whose
+# body swallowed the next line's real force-push).
+block block-destructive-git.sh  "$FLEET_FEAT" $'echo $((1<<2))\ngit push --force origin main'      'arith-expansion $((1<<2)): real force after → block'
+block block-protected-branch.sh "$FLEET_FEAT" $'echo $((1<<2))\ngit push origin master'            'arith-expansion $((1<<2)): real protected push after → block'
+block block-destructive-git.sh  "$FLEET_FEAT" $'(( 1<<2 )); git push --force origin main'           'arith-command (( 1<<2 )): real force after → block'
+block block-destructive-git.sh  "$FLEET_FEAT" $'echo $(( (1<<2) + 3 ))\ngit reset --hard'           'arith nested-paren $(( (x)+y )): real reset after → block'
+block block-file-redirect.sh    "$FLEET_FEAT" $'echo $((2>>1))\nsed -i s/a/b/ src/file.ts'          'arith right-shift $((2>>1)): real writer after → block'
+allow block-destructive-git.sh  "$FLEET_FEAT" 'echo $((1<<2)) done'                                  'arith-expansion alone: no dangerous cmd → allow'
 block "$H" "$FLEET_MASTER" 'git commit -m "x"'                           'commit while standing on master'
 block "$H" "$FLEET_MASTER" 'git push'                                    'bare push while standing on master'
 block "$H" "$FLEET_MASTER" 'git merge feature/w1-x'                      'merge while standing on master'
