@@ -46,9 +46,19 @@ SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 NEEDS_GIT_CHECK=false
 NEEDS_FILE_CHECK=false
 _TOKENIZED=""
-_CMD_BARE=$(printf '%s' "$COMMAND" | tr -d '\042\047\134')   # drop " ' \
+# Heredoc BODIES are stdin DATA, never shell commands. They are consumed INSIDE the
+# tokenizer (_tokenize.pl scan()), which is quote- and comment-aware — so a `<<WORD`
+# is treated as a heredoc opener ONLY in true operator position (never inside quotes
+# or after a `#`). That kills BOTH failure modes with ONE parser: the A9 false-POSITIVE
+# (a `git commit -F- <<EOF` message body quoting `git push --force` no longer reads as a
+# command) AND the quoted/commented-`<<WORD` false-NEGATIVE (a fake opener no longer
+# queues a phantom delimiter that swallows the real commands after it). The old
+# line-based regex pre-strip lived HERE and was exactly the "second hand-maintained
+# parser" the tokenizer rewrite exists to eliminate — deleted, not patched.
+_CMD_TOK="$COMMAND"
+_CMD_BARE=$(printf '%s' "$_CMD_TOK" | tr -d '\042\047\134')   # drop " ' \
 if [ -n "$COMMAND" ] && printf '%s' "$_CMD_BARE" | grep -qE '(^|[^[:alnum:]_.-])(git|gh|sed|cp|mv|dd|sponge|tee)([^[:alnum:]_.-]|$)|>'; then
-  _TOKENIZED=$(printf '%s' "$COMMAND" | perl "$SCRIPT_DIR/_tokenize.pl" 2>/dev/null)
+  _TOKENIZED=$(printf '%s' "$_CMD_TOK" | perl "$SCRIPT_DIR/_tokenize.pl" 2>/dev/null)
   if [ -n "$_TOKENIZED" ]; then
     echo "$_TOKENIZED" | grep -qE '^C(git|gh)$' && NEEDS_GIT_CHECK=true
     if echo "$_TOKENIZED" | grep -qE '^C(sed|cp|mv|dd|sponge|tee)$' || echo "$_TOKENIZED" | grep -q '^R'; then

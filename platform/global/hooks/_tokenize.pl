@@ -123,21 +123,177 @@ sub words_of {
 # Input redirects and fd-dups (2>&1, >&-) are consumed but never emitted.
 # ---------------------------------------------------------------------------
 sub read_redir_target {
-  my ($s, $i) = @_; my $n = length $s;
+  my ($s, $i, $items) = @_; my $n = length $s;
   while ($i < $n && substr($s, $i, 1) =~ /[ \t]/) { $i++; }
   return ("", $i) if $i >= $n || substr($s, $i, 1) =~ /[;|&<>()`\n\r]/;
-  return read_word($s, $i);
+  my ($w, $ni) = read_word($s, $i);
+  # A redirect / here-string target is EXPANDED by bash, so a command sub inside a double-quoted
+  # target runs: `cat <<<"$(git push --force)"`, `cmd > "$(evil)"`. read_word folds "$( … )" into
+  # opaque text, so scan it (Codex-class; bare `$(` targets are already handled by the main loop,
+  # which resumes on the empty target). Single-quoted targets stay inert.
+  _emit_dq_cmdsubs($items, substr($s, $i, $ni - $i)) if $items && $ni > $i;
+  return ($w, $ni);
+}
+
+# Find the end of a command substitution `$( … )`. $i starts just past the `$(`; returns
+# ($inner_string, $index_past_matching_close). Balances nested `(`/`$(` and skips quotes /
+# backticks so a `)` inside them does not close early. Used to scan a command sub embedded
+# in an arithmetic span (where the surrounding `$(( … ))` is otherwise inert).
+sub _cmdsub {
+  my ($s, $i) = @_; my $n = length $s; my $start = $i; my $depth = 1;
+  while ($i < $n) {
+    my $c = substr($s, $i, 1);
+    if    ($c eq "'") { my $j = index($s, "'", $i + 1); $i = ($j < 0 ? $n : $j + 1); }
+    elsif ($c eq '"') { (undef, $i) = read_dq($s, $i + 1); }
+    elsif ($c eq '`') { my $j = index($s, '`', $i + 1); $i = ($j < 0 ? $n : $j + 1); }
+    elsif ($c eq '$' && substr($s, $i + 1, 1) eq '(') { $depth++; $i += 2; }
+    elsif ($c eq '(') { $depth++; $i++; }
+    elsif ($c eq ')') { $depth--; $i++; return (substr($s, $start, $i - 1 - $start), $i) if $depth == 0; }
+    else  { $i++; }
+  }
+  return (substr($s, $start, $i - $start), $i);   # unterminated → to end
+}
+
+# Scan a DOUBLE-QUOTED region for command substitutions. $i starts just past the opening `"`.
+# bash executes `$( … )` / backticks even inside "…", so emit their inner COMMANDS as items
+# (single quotes and `\`-escapes are inert). Returns the index just past the closing `"`.
+sub _scan_dq {
+  my ($items, $s, $i) = @_; my $n = length $s;
+  while ($i < $n) {
+    my $d = substr($s, $i, 1);
+    if ($d eq '\\') { $i += 2; next; }                        # \" \$ \` … — escaped, inert
+    if ($d eq '"')  { return $i + 1; }                        # end of the double-quoted run
+    if ($d eq '$' && substr($s, $i + 1, 1) eq '(') {
+      my ($inner, $ni) = _cmdsub($s, $i + 2);
+      push @$items, ['sep', '$('], scan($inner), ['sep', ')']; $i = $ni; next;
+    }
+    if ($d eq '`') {
+      my $j = index($s, '`', $i + 1); $j = $n if $j < 0;
+      push @$items, ['sep', '`'], scan(substr($s, $i + 1, $j - $i - 1)), ['sep', '`'];
+      $i = ($j < $n ? $j + 1 : $n); next;
+    }
+    $i++;
+  }
+  return $i;
+}
+
+# Emit command substitutions hidden inside DOUBLE quotes of an already-read word span.
+# read_word/read_dq fold `"$( … )"` into opaque word text, but bash still executes it — so
+# `echo "$(git push --force)"` / `X="$( … )"` must be scanned (Codex P2). An UNquoted `$(`
+# never reaches here (read_word stops at it), so every sub found here is inside quotes;
+# single-quoted spans are inert and skipped.
+sub _emit_dq_cmdsubs {
+  my ($items, $s) = @_; my $n = length $s; my $i = 0;
+  while ($i < $n) {
+    my $c = substr($s, $i, 1);
+    if ($c eq "'") { my $j = index($s, "'", $i + 1); $i = ($j < 0 ? $n : $j + 1); next; }
+    if ($c eq '"') { $i = _scan_dq($items, $s, $i + 1); next; }
+    $i++;
+  }
+}
+
+# Scan TEXT for command substitutions where quotes do NOT protect them — i.e. an UNQUOTED
+# heredoc body, in which bash expands `$( … )` / backticks before feeding stdin (single and
+# double quotes are literal there). Only `\$`/`\`` escapes suppress expansion.
+sub _scan_subs {
+  my ($items, $s) = @_; my $n = length $s; my $i = 0;
+  while ($i < $n) {
+    my $c = substr($s, $i, 1);
+    if ($c eq '\\') { $i += 2; next; }                        # \$ \` — escaped, inert
+    if ($c eq '$' && substr($s, $i + 1, 1) eq '(') {
+      my ($inner, $ni) = _cmdsub($s, $i + 2);
+      push @$items, ['sep', '$('], scan($inner), ['sep', ')']; $i = $ni; next;
+    }
+    if ($c eq '`') {
+      my $j = index($s, '`', $i + 1); $j = $n if $j < 0;
+      push @$items, ['sep', '`'], scan(substr($s, $i + 1, $j - $i - 1)), ['sep', '`'];
+      $i = ($j < $n ? $j + 1 : $n); next;
+    }
+    $i++;
+  }
 }
 
 sub scan {
   my ($s) = @_; my @items; my $i = 0; my $n = length $s;
+  my @pending;   # heredoc delimiters awaiting their body: [$delim, $dash]
   while ($i < $n) {
     my $c = substr($s, $i, 1);
     if ($c eq ' ' || $c eq "\t") { $i++; next; }
-    if ($c eq "\n" || $c eq "\r") { push @items, ['sep', ';']; $i++; next; }
+    # An unquoted `#` at a word boundary starts a comment to end-of-line. read_word
+    # folds any `#` INSIDE a word (`foo#bar`, quoted `"a#b"`) into that word, so the
+    # loop only lands on `#` in true command position — bash's comment rule. This is
+    # what keeps a `# <<EOF` from ever queuing a heredoc (outside-review P1).
+    if ($c eq '#') { $i++ while $i < $n && substr($s, $i, 1) ne "\n"; next; }
+    if ($c eq "\n" || $c eq "\r") {
+      push @items, ['sep', ';'];
+      $i++;
+      $i++ if $c eq "\r" && $i < $n && substr($s, $i, 1) eq "\n";   # CRLF = one terminator
+      # A heredoc opener queued on the line just ended pulls the FOLLOWING lines in as
+      # BODY (stdin data, never commands) up to the closing delimiter — consumed HERE,
+      # inside the quote/comment-aware scanner, so a `<<WORD` that was quoted or in a
+      # comment was never queued and cannot swallow real commands (the regex pre-strip's
+      # false-NEGATIVE class). One chokepoint, one parser (the whole point of the rewrite).
+      while (@pending && $i < $n) {
+        my ($d, $dash, $quoted) = @{$pending[0]};
+        my $body = "";
+        while ($i < $n) {
+          my $eol = index($s, "\n", $i); $eol = $n if $eol < 0;
+          my $line = substr($s, $i, $eol - $i); $line =~ s/\r$//;
+          my $t = $line; $t =~ s/^\t+// if $dash; # <<- ignores leading TABS on the close
+          $i = ($eol < $n ? $eol + 1 : $n);
+          last if $t eq $d;                       # close = the delimiter ALONE (bash exact)
+          $body .= $line . "\n";
+        }
+        shift @pending;
+        # An UNQUOTED delimiter (`<<EOF`) makes bash EXPAND the body — `$( … )`/backticks in it
+        # execute before feeding stdin — so scan those subs. A quoted delimiter (`<<'EOF'`) keeps
+        # the body literal/opaque (Codex P2). Literal command TEXT in a body is still just data.
+        _scan_subs(\@items, $body) unless $quoted;
+      }
+      next;
+    }
     my $two = substr($s, $i, 2);
     if ($two eq '&&' || $two eq '||') { push @items, ['sep', $two]; $i += 2; next; }
     if ($c eq ';') { push @items, ['sep', ';']; $i++; next; }
+    # Arithmetic expansion `$(( … ))` and arithmetic command `(( … ))` are a VALUE / a test,
+    # never a command list — and `<<`/`>>`/`<`/`>`/`&`/`|` inside them are C operators, not
+    # heredocs/redirects/pipes/backgrounding. bash tells them apart from command-substitution
+    # `$( ( …` and nested subshells `( ( …` by the DOUBLED paren with NO space, and rejects a
+    # real command inside (`((echo hi))` is a syntax error), so consuming the whole BALANCED
+    # span inertly is bash-faithful AND cannot hide a command. Without this, `echo $((1<<2))`
+    # (or `(( 1<<2 ))`) is misread as a `1<<2` heredoc opener that swallows the following
+    # line's real `git push --force` as heredoc body (Codex P2). Depth starts at 2 (both
+    # opening parens); scan to the matching `))`.
+    if (($c eq '$' && substr($s, $i + 1, 2) eq '((') || substr($s, $i, 2) eq '((') {
+      $i += ($c eq '$' ? 3 : 2);
+      my $adepth = 2;                                        # the two opening parens
+      while ($i < $n && $adepth > 0) {
+        my $ch = substr($s, $i, 1);
+        # Nested arithmetic first (so its inner is not mis-scanned as a command).
+        if (($ch eq '$' && substr($s, $i + 1, 2) eq '((') || substr($s, $i, 2) eq '((') {
+          $i += ($ch eq '$' ? 3 : 2); $adepth += 2; next;
+        }
+        # A nested command substitution `$( … )` still EXECUTES in bash even inside arithmetic
+        # (`$(( $(git push --force) + 1 ))`), so scan its inner COMMANDS rather than dropping
+        # them (Codex P2). Its own parens are balanced by _cmdsub, not counted against $adepth.
+        if ($ch eq '$' && substr($s, $i + 1, 1) eq '(') {
+          my ($inner, $ni) = _cmdsub($s, $i + 2);
+          push @items, ['sep', '$('], scan($inner), ['sep', ')'];
+          $i = $ni; next;
+        }
+        if ($ch eq '`') {                                    # backtick command substitution
+          my $j = index($s, '`', $i + 1); $j = $n if $j < 0;
+          push @items, ['sep', '`'], scan(substr($s, $i + 1, $j - $i - 1)), ['sep', '`'];
+          $i = ($j < $n ? $j + 1 : $n); next;
+        }
+        if ($ch eq "'") { my $j = index($s, "'", $i + 1); $i = ($j < 0 ? $n : $j + 1); next; }  # opaque operand
+        if ($ch eq '"') { $i = _scan_dq(\@items, $s, $i + 1); next; }   # "…" runs $() too (Codex P2)
+        if    ($ch eq '(') { $adepth++; $i++; next; }
+        elsif ($ch eq ')') { $adepth--; $i++; next; }
+        $i++;   # inert arithmetic operator / operand char (`<<`, `>>`, digits, +, …)
+      }
+      next;
+    }
     if ($c eq '$' && substr($s, $i + 1, 1) eq '(') { push @items, ['sep', '$(']; $i += 2; next; }
     if ($c eq '`') { push @items, ['sep', '`']; $i++; next; }
     if ($c eq '(') { push @items, ['sep', '(']; $i++; next; }
@@ -147,14 +303,31 @@ sub scan {
     # Redirects. Order matters: combined `&>`/`&>>` before the `&` background op,
     # and fd-dup `>&`/`n>&` (not a file write) before plain `>`.
     my $rest = substr($s, $i);
-    if ($rest =~ /^&>>?/) { my $op = $&; $i += length $op; my ($t, $ni) = read_redir_target($s, $i); push @items, ['redir', $t] if $t ne ""; $i = $ni; next; }
-    if ($rest =~ /^(\d*)>&/) { $i += length($1) + 2; my ($t, $ni) = read_redir_target($s, $i); $i = $ni; next; }   # fd dup — skip
-    if ($rest =~ /^(\d*)(>>|>\||>)/) { $i += length($1) + length($2); my ($t, $ni) = read_redir_target($s, $i); push @items, ['redir', $t] if $t ne ""; $i = $ni; next; }
-    if ($rest =~ /^(\d*)(<<<|<<|<)/) { $i += length($1) + length($2); my ($t, $ni) = read_redir_target($s, $i); $i = $ni; next; }   # input — skip target
+    if ($rest =~ /^&>>?/) { my $op = $&; $i += length $op; my ($t, $ni) = read_redir_target($s, $i, \@items); push @items, ['redir', $t] if $t ne ""; $i = $ni; next; }
+    if ($rest =~ /^(\d*)>&/) { $i += length($1) + 2; my ($t, $ni) = read_redir_target($s, $i, \@items); $i = $ni; next; }   # fd dup — skip
+    if ($rest =~ /^(\d*)(>>|>\||>)/) { $i += length($1) + length($2); my ($t, $ni) = read_redir_target($s, $i, \@items); push @items, ['redir', $t] if $t ne ""; $i = $ni; next; }
+    if ($rest =~ /^(\d*)<<</) { $i += length($1) + 3; my ($t, $ni) = read_redir_target($s, $i, \@items); $i = $ni; next; }   # here-string <<< — one word, no body
+    if ($rest =~ /^(\d*)<<(-?)/) {                                         # heredoc opener — queue the delimiter; body consumed at the next newline
+      $i += length($1) + 2 + length($2);
+      $i++ while $i < $n && substr($s, $i, 1) =~ /[ \t]/;                  # `<< WORD` — spaces allowed before the delimiter
+      my $dstart = $i;
+      my ($delim, $ni) = read_word($s, $i); $i = ($ni > $i ? $ni : $i + 1);
+      # ANY quote/backslash in the RAW delimiter (`<<'EOF'`, `<<"E"OF`, `<<\EOF`) makes bash
+      # treat the body as LITERAL (no expansion); a bare `<<EOF` expands it. read_word dequotes
+      # the delimiter, so inspect the raw span to decide (drives body-scanning above).
+      my $quoted = (substr($s, $dstart, $i - $dstart) =~ /['"\\]/) ? 1 : 0;
+      push @pending, [$delim, ($2 eq '-'), $quoted] if $delim ne '';
+      next;
+    }
+    if ($rest =~ /^(\d*)</) { $i += length($1) + 1; my ($t, $ni) = read_redir_target($s, $i, \@items); $i = $ni; next; }   # plain input redirect — skip target
     if ($c eq '|') { push @items, ['sep', '|']; $i++; next; }
     if ($c eq '&') { push @items, ['sep', '&']; $i++; next; }
     my ($w, $ni) = read_word($s, $i);
-    if ($ni > $i) { push @items, ['w', $w]; $i = $ni; }
+    if ($ni > $i) {
+      push @items, ['w', $w];
+      _emit_dq_cmdsubs(\@items, substr($s, $i, $ni - $i));   # "$( … )" hidden in the word runs too
+      $i = $ni;
+    }
     else { $i++; }   # defensive: never stall
   }
   return @items;

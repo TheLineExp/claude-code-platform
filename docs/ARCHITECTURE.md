@@ -53,9 +53,16 @@ Full descriptions: [SKILLS_REFERENCE.md](SKILLS_REFERENCE.md).
 
 - `backlog-gate.js` — PreToolUse(Skill) hook; confirm-prompts every `/todo` and `/feature`
   add so a model-initiated backlog entry can't pass silently (Doctrine Rule 4). Fails open.
+- `session-guard.js` — UserPromptSubmit hook; recommends a fresh session when the current
+  one grows long.
+- `check-fix-landed.sh` — PostToolUse(Bash) ADVISORY (never blocks): after a `git commit` /
+  `git push`, checks the branch's PR and loudly flags an ORPHANED fix — pushed to a branch
+  whose PR is already merged/closed, or a branch with no PR — so a fix can't silently miss
+  deploy. Confirms the benign case (`✓ on open PR #N`) and, for a merged PR, verifies the
+  merge actually included the commit. Reuses `_tokenize.pl` to resolve the git action + cwd.
 - `statusline-command.sh` — statusline (`dir (branch) model ctx:NN%`).
-- `claude-CLAUDE.template.md` / `claude-settings.template.json` — rendered to
-  `~/.claude/CLAUDE.md` and `~/.claude/settings.json` with real paths substituted.
+- `claude-CLAUDE.template.md` / `claude-settings.template.json` — plain-copied to
+  `~/.claude/CLAUDE.md` and `~/.claude/settings.json` (no substitution).
 - `graphify-autoquery.js` — **retired from deployment**. Kept in the repo for reference; its
   entity extraction injected junk graph nodes into every prompt. `/graphify` remains a
   normal on-demand skill.

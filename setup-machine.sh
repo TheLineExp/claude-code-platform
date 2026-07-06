@@ -54,6 +54,8 @@ while [[ $# -gt 0 ]]; do
       say "  platform/global/claude-CLAUDE.template.md  -> ~/.claude/CLAUDE.md"
       say "  platform/global/claude-settings.template.json -> ~/.claude/settings.json"
       say "  platform/global/backlog-gate.js -> ~/.claude/hooks/backlog-gate.js"
+      say "  platform/global/session-guard.js -> ~/.claude/hooks/session-guard.js"
+      say "  platform/global/pr-ready-gate.js -> ~/.claude/hooks/pr-ready-gate.js"
       say "  platform/global/statusline-command.sh -> ~/.claude/statusline-command.sh"
       say ""
       say "  Retired: ~/.claude/hooks/graphify-autoquery.js is REMOVED if present."
@@ -110,6 +112,7 @@ declare -a SRC_FILES=( \
   "$GLOBAL_SRC/claude-settings.template.json" \
   "$GLOBAL_SRC/backlog-gate.js" \
   "$GLOBAL_SRC/session-guard.js" \
+  "$GLOBAL_SRC/pr-ready-gate.js" \
   "$GLOBAL_SRC/statusline-command.sh" \
 )
 declare -a LIVE_FILES=( \
@@ -117,6 +120,7 @@ declare -a LIVE_FILES=( \
   "$CLAUDE_HOME/settings.json" \
   "$CLAUDE_HOME/hooks/backlog-gate.js" \
   "$CLAUDE_HOME/hooks/session-guard.js" \
+  "$CLAUDE_HOME/hooks/pr-ready-gate.js" \
   "$CLAUDE_HOME/statusline-command.sh" \
 )
 

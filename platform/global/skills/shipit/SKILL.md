@@ -135,6 +135,42 @@ basename "$(git rev-parse --show-toplevel)"
 - If on `feature/*` → proceed
 - If on any other branch → proceed with caution, warn the user
 
+### Step 1a: Mechanical Pre-Flight Guards (cheap, always run)
+
+Three audit failure classes had NO mechanical guard — they relied on the model noticing.
+These are cheap greps; run them and report what fired. (The judgment-level versions live in
+the `outside-reviewer` families 3/6 — this is the mechanical floor under them.)
+
+```bash
+BASE=origin/staging   # base you're shipping against
+
+# 1. GIANT-PR SIZE — oversized diffs hide bugs and blow review budgets (doctrine: split it).
+LINES=$(git diff $BASE...HEAD --numstat | awk '{a+=$1;d+=$2} END{print a+d+0}')
+FILES=$(git diff $BASE...HEAD --name-only | wc -l | tr -d ' ')
+echo "diff size: $LINES lines across $FILES files"
+{ [ "$LINES" -gt 600 ] || [ "$FILES" -gt 25 ]; } && \
+  echo ">>> GIANT PR — recommend splitting; if shipping whole, say WHY in the PR body"
+
+# 2. REPEAT-OFFENDER (root-defect re-patched across PRs) — a file fixed again and again is a
+#    symptom of an unfixed root cause. Find the PRIOR fix before adding another patch.
+for f in $(git diff $BASE...HEAD --name-only | grep -vE '^docs/|changelog|\.md$'); do
+  n=$(git log --oneline --since='45 days ago' -- "$f" | grep -ciE '\b(fix|hotfix|bug)\b')
+  [ "$n" -ge 3 ] && echo ">>> REPEAT-OFFENDER: $f — $n fix-commits/45d; are you re-patching a root defect?"
+done
+
+# 3. KNOWN-HELPERS-IGNORED (heuristic — candidates to eyeball, not hard blocks). Hand-rolled
+#    logic where a documented helper exists. Confirm each hit against outside-reviewer family 6.
+git diff $BASE...HEAD | rg -n '^\+' | rg -in \
+  -e 'error\.response\.data|err\.message.*toast|catch\s*\([^)]*\)\s*\{[^}]*setError' \
+  -e '\|\|\s*(0|\[\]|\{\})\b' \
+  -e '\.(mutate|mutateAsync)\(' \
+  && echo ">>> KNOWN-HELPERS candidates — verify: apiErrorText for errors, ?? not || on intentional 0/[], React-Query invalidate after each mutation"
+```
+
+Report one line: sizes, any repeat-offenders, any helper candidates — or "pre-flight clean".
+None of these HARD-block by themselves; a giant PR or repeat-offender that ships anyway needs
+a one-line justification in the PR body (doctrine Rule 1 — flag loudly, then proceed).
+
 ### Step 1b: Adversarial Parity Sweep (MANDATORY for payment / state / shared / auth / concurrency changes)
 
 This is the gate that catches what `/code-review`'s diff scope cannot: **bugs in code you did
@@ -145,6 +181,23 @@ cannot see any of them. **Required, never skippable** (even for a backend one-li
 the diff touches: refunds/payments/vouchers/Stripe, a status or state transition, a shared
 helper or serializer, an auth/role gate, or anything concurrent. (Pure cosmetic/copy/CSS may
 skip it — say so.)
+
+**Mechanical trigger (run FIRST — do not decide scope by judgment alone).** Model-judgment
+misclassifies "is this a money/state change?" and then the gate silently never fires. Grep the
+diff the same way the doctrine ship-gate greps for customer-contact — if ANY line matches, Step
+1b is REQUIRED and not skippable:
+```bash
+git diff origin/staging...HEAD | rg -in \
+  -e 'refund|payment|stripe|webhook|charge|payout|settl|voucher|balance|invoice|amount(Cents)?|price|deposit' \
+  -e 'prisma\.\w+\.(update|updateMany|upsert|delete|deleteMany|create)|\$executeRaw|\$queryRaw' \
+  -e 'status\s*[:=]|\btransition|CONFIRMED|CANCELL|PENDING|\bACTIVE\b|REFUND|CAPTUR|VOID' \
+  -e 'authenticate|authoriz|requireRole|requirePartnerRole|isManagerForFleet|optionalAuth' \
+  -e '\$transaction|advisory_?lock|idempoten|mutex|withLock|_withSettlementLock' \
+  && echo ">>> Step 1b REQUIRED — money/state/writer/auth/concurrency signal in diff"
+```
+A hit = mandatory (launch the agents below). No hit does NOT auto-exempt: a shared
+helper/serializer rename won't match, so still eyeball the diff — but a hit removes all
+discretion. Say in your ship output whether the grep fired and which pattern class.
 
 **Run the sweep as agents, not prose.** Launch BOTH (in parallel, via the Agent tool):
 1. **`parity-sweep` agent** — covers Part 1 and Part 3 below (sibling call sites, twin
@@ -446,8 +499,19 @@ Wait for CI checks to pass, then **report the PR as a clickable link with its ve
 
 ### Step 5b: PR-Ready Gate (MANDATORY before ANY "ready / done / shipped" claim)
 
-Never report a PR as ready from memory — a stale "ready" report is a defect. **Immediately
-before** the words "ready", "done", or "shipped" leave your mouth, verify LIVE state:
+Never report a PR as ready from memory — a stale "ready" report is a defect. This gate is a
+REAL control, not prose: run the verifier, which checks LIVE state and writes a freshness
+marker. The `Stop` hook (`pr-ready-gate.js` with no args) BLOCKS a "ready/done/shipped" claim
+about a PR that has no fresh PASS marker — so skipping this step is caught automatically.
+
+```bash
+# Runs `gh pr checks` + the unresolved-review-thread count; writes a PASS marker (valid 20 min)
+# ONLY on "checks green + 0 unresolved". Prints PR-READY VERIFIED (exit 0) or BLOCKED (exit 1).
+node ~/.claude/hooks/pr-ready-gate.js verify <owner/repo> <n>
+```
+
+Only after it prints **PR-READY VERIFIED** may you use the word "ready". If it BLOCKS, do NOT
+report ready — fix, push, re-verify. (The two checks it runs, for reference / manual use:)
 
 ```bash
 # 1. All checks green
@@ -488,7 +552,22 @@ gh run list --repo TheLineExp/Fleetmanager_V3 --branch staging --limit 1
 gh run list --repo TheLineExp/fleetmanager-reservations --branch staging --limit 1
 ```
 
-### Step 6: Create Production PR
+### Step 6: Report Staging PR URL (hand off — the user merges staging FIRST)
+
+Do NOT create the production PR yet. The staging PR must be merged and its deploy verified
+before the prod PR can exist (Step 7's gate) — creating it now is the double-review furnace
+this ordering exists to prevent. Return the staging PR URL and stop here until the user
+confirms the merge. The user will:
+1. Review the PR diff
+2. Merge it (regular merge, NOT squash — preserves commit history)
+3. Staging auto-deploys after merge (~3–5 min)
+
+**Do NOT attempt `gh pr merge` — this is blocked by hooks.**
+
+### Step 7: Create Production PR (ONLY after the user confirms staging is merged + healthy)
+
+This is the single prod-PR-creation step, and it runs AFTER Step 6's staging merge — never
+before. If staging isn't merged yet, you are still in Step 6.
 
 **PROD-PROMOTION GATE (MANDATORY — kills the double-review furnace).** Do NOT create the
 production PR until the staging PR(s) feeding it are CONVERGED. Two weeks of data show 14+
@@ -502,7 +581,8 @@ before promotion — every one of those doubled the review cost. Verify, live:
 3. If a finding was consciously NOT fixed, that needs Mike's explicit OK, in writing, per
    doctrine Rule 4 — a deferred P1/P2 on a prod release is shipped, not deferred.
 
-Only after all three pass, create the prod PR.
+Only after all three pass, create the prod PR (or note if one already exists). Return the
+production PR URL.
 
 **IMPORTANT: Only CREATE the PR. Never merge it — the user merges production PRs manually.**
 
@@ -546,20 +626,7 @@ EOF
 
 If a PR already exists (staging→main or staging→master), tell the user it's already open and provide the URL.
 
-### Step 7: Report Staging PR URL
-
-Return the staging PR URL to the user. The user will:
-1. Review the PR diff
-2. Merge it (regular merge, NOT squash — preserves commit history)
-3. Staging auto-deploys after merge
-
-**Do NOT attempt `gh pr merge` — this is blocked by hooks.**
-
-### Step 8: Create Production PR (after staging merge)
-
-After the user confirms staging is merged and healthy, create the production PR (or note if one already exists). Return the production PR URL.
-
-**Do NOT attempt to merge the production PR.**
+**Do NOT attempt to merge the production PR** — the user merges production PRs manually.
 
 ## Important Notes
 
@@ -621,7 +688,7 @@ Production PR: [TheLineExp/<repo>#<n>](<PR URL>) — OPEN → master/main (needs
 - FM V3: `<base>/api/health`
 - Reservations: `<base>/health`
 
-## Step 9: Worktree Cleanup (after PR created)
+## Step 8: Worktree Cleanup (after staging PR created)
 
 After the staging PR is created and CI passes, clean up the worktree:
 

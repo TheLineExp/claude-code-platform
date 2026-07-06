@@ -219,6 +219,83 @@ run block block-protected-branch.sh "$FEAT" "git -C \"$MASTER_SP\" commit -m x" 
 run block block-protected-branch.sh "$FEAT" "cd \"$MASTER_SP\" && git commit -m x"   "F7-spaced"
 run block block-protected-branch.sh "$FEAT" "git -C \"$MASTER_SP\" push"             "F7-spaced"
 
+# (11) FAKE-OPENER grammar (F8) — a `<<WORD` that is NOT a real heredoc opener
+# because it is QUOTED or inside a COMMENT. It must never queue a phantom delimiter
+# that swallows the real dangerous command on the following line. This class lived
+# in NEITHER this fuzzer NOR the curated suite until the outside-reviewer found it
+# (the regex pre-strip was quote/comment-blind); the tokenizer now handles heredocs
+# with full quote/comment state, so every fake opener leaves the next line exposed.
+FAKE_OPENERS=(
+  'echo x # <<EOF'          # <<WORD in a comment
+  'echo '\''<<EOF'\'''      # <<WORD single-quoted
+  'echo "<<EOF"'            # <<WORD double-quoted
+  'git log --grep "<<EOF"'  # <<WORD inside a quoted flag argument (non-adversarial)
+)
+for core in "${CORES[@]}"; do
+  IFS='|' read -r id hook word rest <<< "$core"
+  for opener in "${FAKE_OPENERS[@]}"; do
+    run block "$hook" "$FEAT" "$opener"$'\n'"$word $rest" "F8-fakeopener"
+  done
+done
+# INVERSE — a REAL heredoc body carrying the same literal must still ALLOW (data,
+# not a command): guards against over-correcting the fix into a false-positive.
+run allow block-destructive-git.sh  "$FEAT" $'git commit -F - <<EOF\ngit push --force origin x\nEOF' "F8-fakeopener"
+run allow block-protected-branch.sh "$FEAT" $'git commit -F - <<EOF\ngit push origin master\nEOF'    "F8-fakeopener"
+
+# (12) ARITHMETIC-vs-HEREDOC grammar (F9) — `<<`/`>>` inside `$(( … ))` or `(( … ))` are C
+# shift operators, NOT heredoc openers. bash rejects a command inside arithmetic
+# (`((echo hi))` is a syntax error), so a dangerous command AFTER the arithmetic must
+# survive tokenizing. Codex P2: `echo $((1<<2))` was misread as a `1<<2` heredoc whose
+# body swallowed the next line's real force-push. Cross each core with a shift-bearing
+# arithmetic prefix (expansion forms on their own line; the command form via `;`).
+ARITH_PREFIXES=(
+  'echo $((1<<2))'          # arithmetic EXPANSION, left shift
+  'echo $(( (1<<2) + 3 ))'  # nested parens inside the expansion
+  'echo $((8>>1))'          # right shift (would-be `>>` redirect if mis-scanned)
+  'x=$((1<<4))'             # expansion inside an assignment word
+)
+for core in "${CORES[@]}"; do
+  IFS='|' read -r id hook word rest <<< "$core"
+  for pre in "${ARITH_PREFIXES[@]}"; do
+    run block "$hook" "$FEAT" "$pre"$'\n'"$word $rest" "F9-arith"
+  done
+  run block "$hook" "$FEAT" "(( 1<<2 )); $word $rest" "F9-arith"   # arithmetic COMMAND then danger
+  # A command substitution INSIDE arithmetic still executes in bash — its inner command must
+  # be scanned, not dropped with the span (Codex P2: `$(( $(git push --force) + 1 ))`).
+  run block "$hook" "$FEAT" "echo \$(( \$($word $rest) + 1 ))" "F9-arith"   # $( … ) inside $(( ))
+  run block "$hook" "$FEAT" "echo \$(( \`$word $rest\` + 1 ))"  "F9-arith"   # backtick inside $(( ))
+done
+# INVERSE — a real heredoc body that merely CONTAINS arithmetic still drops as data
+# (allow), bare arithmetic with no dangerous command must not false-positive, and a SAFE
+# command sub inside arithmetic must not block.
+run allow block-destructive-git.sh  "$FEAT" $'git commit -F - <<EOF\necho $((1<<2)) git push --force\nEOF' "F9-arith"
+run allow block-protected-branch.sh "$FEAT" 'echo $((1<<2)) and $((3>>1)) done'                            "F9-arith"
+run allow block-destructive-git.sh  "$FEAT" 'echo $(( $(date +%s) + 1 ))'                                  "F9-arith"
+
+# (13) DOUBLE-QUOTED command substitution (F10) — bash executes `$( … )` / backticks inside
+# "…" (and inside "…" within arithmetic), which read_dq folded into opaque word text. Every
+# dangerous core buried in a double-quoted substitution must still block (Codex P2).
+for core in "${CORES[@]}"; do
+  IFS='|' read -r id hook word rest <<< "$core"
+  run block "$hook" "$FEAT" "echo \"\$($word $rest)\""             "F10-dqsub"   # "$( … )"
+  run block "$hook" "$FEAT" "X=\"\$($word $rest)\""                "F10-dqsub"   # assignment
+  run block "$hook" "$FEAT" "echo \"pre \$($word $rest) post\""    "F10-dqsub"   # mid-string
+  run block "$hook" "$FEAT" "echo \"\`$word $rest\`\""             "F10-dqsub"   # backtick in "…"
+  run block "$hook" "$FEAT" "echo \$(( \"\$($word $rest)\" + 1 ))" "F10-dqsub"   # inside arithmetic "…"
+done
+run allow block-destructive-git.sh "$FEAT" 'echo "$(date +%s) ok"'          "F10-dqsub"   # safe sub → allow
+run allow block-destructive-git.sh "$FEAT" $'echo \x27$(git push --force)\x27' "F10-dqsub"  # single-quoted → allow
+
+# (14) HEREDOC-body command substitution (F11) — an UNQUOTED `<<EOF` expands its body, so a
+# `$( … )`/backtick there executes; every dangerous core must block. A QUOTED `<<'EOF'` body
+# stays opaque (allow), and literal command TEXT in a body is data (allow).
+for core in "${CORES[@]}"; do
+  IFS='|' read -r id hook word rest <<< "$core"
+  run block "$hook" "$FEAT" "cat <<EOF"$'\n'"\$($word $rest)"$'\n'"EOF" "F11-heredocsub"
+done
+run allow block-destructive-git.sh "$FEAT" $'cat <<\x27EOF\x27\n$(git push --force)\nEOF' "F11-heredocsub"  # quoted delim → opaque
+run allow block-destructive-git.sh "$FEAT" $'cat <<EOF\njust git push --force text\nEOF'  "F11-heredocsub"  # literal → data
+
 # ---------------------------------------------------------------------------
 echo
 echo "hooks: $HOOKS_DIR"
@@ -227,7 +304,7 @@ awk '
   $2=="leak" { leak[$1]++; totL++ }
   $2=="fp"   { fp[$1]++;   totF++ }
   END {
-    order="F1-wrapper F1-cmdword F1-combo F2-flag F2-refspec F3-context F4-falsepos F5-writer F6-nested F7-spaced";
+    order="F1-wrapper F1-cmdword F1-combo F2-flag F2-refspec F3-context F4-falsepos F5-writer F6-nested F7-spaced F8-fakeopener F9-arith F10-dqsub F11-heredocsub";
     n=split(order,f," ");
     printf "%-24s %7s %7s %7s\n","FAMILY","TOTAL","LEAKS","FALSE+";
     for(i=1;i<=n;i++){k=f[i]; printf "%-24s %7d %7d %7d\n",k,tot[k]+0,leak[k]+0,fp[k]+0}

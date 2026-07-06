@@ -152,6 +152,79 @@ allow "$H" "$FLEET_FEAT" 'git push origin feature/staging-fix'           'FP gua
 allow "$H" "$FLEET_FEAT" 'git push origin feature/w1-x'                  'normal feature push'
 allow "$H" "$FLEET_FEAT" 'echo "git push origin master"'                 'A9-class: literal in echo'
 allow "$H" "$FLEET_FEAT" 'git commit -m "true; git push origin master"'  'A9-class: literal in -m'
+# HEREDOC class (A9 via heredoc): a commit whose -F - message body quotes a
+# dangerous git command at LINE START must NOT trip a guard — the heredoc body is
+# stdin data, stripped upstream in _parse-input.sh. But a REAL command AFTER the
+# closing delimiter must still fire.
+allow block-protected-branch.sh "$FLEET_FEAT" $'git commit -F - <<EOF\nnotes:\ngit push origin master\nEOF'          'heredoc: protected literal in body → allow'
+allow block-no-verify.sh        "$FLEET_FEAT" $'git commit -F - <<EOF\nwhy:\ngit commit --no-verify\nEOF'            'heredoc: --no-verify in body → allow'
+allow block-destructive-git.sh  "$FLEET_FEAT" $'git commit -F - <<EOF\nfix:\ngit push --force origin x\ngit reset --hard\nEOF' 'heredoc: force/reset in body → allow'
+allow block-destructive-git.sh  "$FLEET_FEAT" $'git commit -F - <<-EOF\n\tgit push --force\n\tEOF'                   'heredoc: <<- indented delimiter → allow'
+allow block-destructive-git.sh  "$FLEET_FEAT" $'git commit -F - <<\x27EOF\x27\ngit push --force origin x\nEOF'       'heredoc: quoted delimiter → allow'
+block block-destructive-git.sh  "$FLEET_FEAT" $'git commit -F - <<EOF\nnote\nEOF\ngit push --force origin x'         'heredoc: REAL force push after close → block'
+block block-protected-branch.sh "$FLEET_FEAT" $'git commit -F - <<EOF\nnote\nEOF\ngit push origin master'           'heredoc: REAL protected push after close → block'
+# opener-line continuation (the false-NEGATIVE the single-regex strip introduced):
+# a real command sharing the heredoc's OPENER line via a separator must survive.
+block block-destructive-git.sh  "$FLEET_FEAT" $'git commit -F - <<EOF; git push --force origin x\nbody\nEOF'        'heredoc: REAL force after ; on opener → block'
+block block-destructive-git.sh  "$FLEET_FEAT" $'git commit -F - <<EOF && git reset --hard\nbody\nEOF'               'heredoc: REAL reset after && on opener → block'
+block block-destructive-git.sh  "$FLEET_FEAT" $'git commit -F - <<EOF | git clean -fdx\nbody\nEOF'                  'heredoc: REAL clean after | on opener → block'
+block block-protected-branch.sh "$FLEET_FEAT" $'git commit -F - <<EOF & git push origin master\nbody\nEOF'          'heredoc: REAL protected push after & on opener → block'
+allow block-destructive-git.sh  "$FLEET_FEAT" $'git commit -F - <<A <<B\nbodyA has git push --force\nA\nbodyB git reset --hard\nB' 'heredoc: multiple heredocs, both bodies dropped → allow'
+# here-string `<<<WORD` must NOT be read as a heredoc (`<<` matching the 2nd-3rd `<`
+# would queue a phantom delimiter and swallow the real command after it → bypass).
+block block-destructive-git.sh  "$FLEET_FEAT" $'cat <<<EOF\ngit push --force origin main'                            'here-string <<<WORD: real force after → block'
+block block-protected-branch.sh "$FLEET_FEAT" $'cat <<<WORD\ngit push origin master'                                'here-string <<<WORD: real protected push after → block'
+block block-file-redirect.sh    "$FLEET_FEAT" $'cat <<<EOF\nsed -i s/a/b/ src/file.ts'                              'here-string <<<WORD: real writer after → block'
+# CRLF: the close line arrives as `EOF\r`; without \r-stripping the body never ends
+# and the real trailing command is dropped → bypass.
+block block-destructive-git.sh  "$FLEET_FEAT" $'git commit -F - <<EOF\r\nm\r\nEOF\r\ngit push -f origin main'       'heredoc CRLF: real force after close → block'
+allow block-destructive-git.sh  "$FLEET_FEAT" $'git commit -F - <<EOF\r\ngit push --force\r\nEOF\r'                 'heredoc CRLF: danger in body → allow'
+# FAKE openers — a `<<WORD` that is QUOTED or in a COMMENT is NOT a heredoc, so it must
+# not queue a phantom delimiter that swallows the real command after it (outside-review
+# P1 on this branch: the regex pre-strip was quote/comment-blind; the tokenizer isn't).
+block block-destructive-git.sh  "$FLEET_FEAT" $'echo hi # <<EOF\ngit push --force origin master'                    'fake heredoc in COMMENT: real force after → block'
+block block-protected-branch.sh "$FLEET_FEAT" $'echo hi # <<EOF\ngit push origin master'                            'fake heredoc in COMMENT: real protected push after → block'
+block block-destructive-git.sh  "$FLEET_FEAT" $'echo \x27<<EOF\x27\ngit push --force origin master'                 'fake heredoc SINGLE-quoted: real force after → block'
+block block-destructive-git.sh  "$FLEET_FEAT" $'echo "<<EOF"\ngit push --force origin master'                       'fake heredoc DOUBLE-quoted: real force after → block'
+block block-file-redirect.sh    "$FLEET_FEAT" $'echo \x27<<EOF\x27\nsed -i s/a/b/ src/file.ts'                      'fake heredoc SINGLE-quoted: real writer after → block'
+block block-destructive-git.sh  "$FLEET_FEAT" $'git log --grep "fix <<HEAD bug"\ngit push --force origin master'    'non-adversarial <<WORD in quoted grep arg: real force after → block'
+# FAKE openers via ARITHMETIC — `<<`/`>>` inside `$(( … ))` or `(( … ))` are C shift
+# operators, not heredoc openers. bash rejects a real command inside arithmetic
+# (`((echo hi))` is a syntax error), so a dangerous command AFTER the arithmetic must
+# survive tokenizing (Codex P2: `echo $((1<<2))` was misread as a `1<<2` heredoc whose
+# body swallowed the next line's real force-push).
+block block-destructive-git.sh  "$FLEET_FEAT" $'echo $((1<<2))\ngit push --force origin main'      'arith-expansion $((1<<2)): real force after → block'
+block block-protected-branch.sh "$FLEET_FEAT" $'echo $((1<<2))\ngit push origin master'            'arith-expansion $((1<<2)): real protected push after → block'
+block block-destructive-git.sh  "$FLEET_FEAT" $'(( 1<<2 )); git push --force origin main'           'arith-command (( 1<<2 )): real force after → block'
+block block-destructive-git.sh  "$FLEET_FEAT" $'echo $(( (1<<2) + 3 ))\ngit reset --hard'           'arith nested-paren $(( (x)+y )): real reset after → block'
+block block-file-redirect.sh    "$FLEET_FEAT" $'echo $((2>>1))\nsed -i s/a/b/ src/file.ts'          'arith right-shift $((2>>1)): real writer after → block'
+allow block-destructive-git.sh  "$FLEET_FEAT" 'echo $((1<<2)) done'                                  'arith-expansion alone: no dangerous cmd → allow'
+# A command substitution INSIDE arithmetic still EXECUTES in bash — its inner command must be
+# scanned, not dropped with the span (Codex P2: consuming the whole $(( … )) span swallowed it).
+block block-destructive-git.sh  "$FLEET_FEAT" 'echo $(( $(git push --force origin main >/dev/null; echo 1) + 1 ))' 'cmdsub inside $(( )): real force → block'
+block block-protected-branch.sh "$FLEET_FEAT" 'echo $(( $(git push origin master) + 0 ))'            'cmdsub inside $(( )): real protected push → block'
+block block-destructive-git.sh  "$FLEET_FEAT" 'echo $(( `git push --force origin x` + 1 ))'          'backtick inside $(( )): real force → block'
+allow block-destructive-git.sh  "$FLEET_FEAT" 'echo $(( $(date +%s) + 1 ))'                          'SAFE cmdsub inside $(( )): no danger → allow'
+# DOUBLE-QUOTED command substitution — bash runs `$( … )`/backticks inside "…" (read_dq folded
+# it into opaque word text → a pre-existing bypass surfaced via the arithmetic path; Codex P2).
+block block-destructive-git.sh  "$FLEET_FEAT" 'echo "$(git push --force origin main)"'              'dq cmdsub: real force → block'
+block block-destructive-git.sh  "$FLEET_FEAT" 'X="$(git push --force origin main)"'                 'dq cmdsub in assignment: real force → block'
+block block-protected-branch.sh "$FLEET_FEAT" 'echo "wrap $(git push origin master) here"'          'dq cmdsub mid-string: real protected push → block'
+block block-destructive-git.sh  "$FLEET_FEAT" 'echo "`git push --force origin x`"'                  'backtick inside dq: real force → block'
+block block-file-redirect.sh    "$FLEET_FEAT" 'echo "$(sed -i s/a/b/ src/file.ts)"'                 'dq cmdsub: real writer → block'
+allow block-destructive-git.sh  "$FLEET_FEAT" 'echo "$(date +%s) done"'                             'SAFE dq cmdsub: no danger → allow'
+allow block-destructive-git.sh  "$FLEET_FEAT" $'echo \x27$(git push --force origin x)\x27'          'single-quoted sub: not executed → allow'
+# UNQUOTED heredoc body EXPANDS — `$( … )`/backticks in it execute; a QUOTED delimiter keeps the
+# body literal. Literal command TEXT in a body stays data either way (Codex P2).
+block block-destructive-git.sh  "$FLEET_FEAT" $'cat <<EOF\n$(git push --force origin main)\nEOF'    'unquoted heredoc body cmdsub: real force → block'
+block block-protected-branch.sh "$FLEET_FEAT" $'cat <<EOF\n$(git push origin master)\nEOF'          'unquoted heredoc body cmdsub: real protected → block'
+allow block-destructive-git.sh  "$FLEET_FEAT" $'cat <<\x27EOF\x27\n$(git push --force origin x)\nEOF' 'quoted <<EOF body: opaque → allow'
+allow block-destructive-git.sh  "$FLEET_FEAT" $'cat <<EOF\nplease git push --force later\nEOF'       'literal text in body (no sub): data → allow'
+# A redirect / here-string TARGET is expanded by bash — a dq command sub in it runs (Codex-class;
+# the last opaque text-consumer, read_redir_target). Single-quoted targets stay inert.
+block block-destructive-git.sh  "$FLEET_FEAT" 'cat <<<"$(git push --force origin main)"'            'here-string dq target cmdsub: real force → block'
+block block-protected-branch.sh "$FLEET_FEAT" 'echo hi > "$(git push origin master)"'               'write-redirect dq target cmdsub: real protected → block'
+allow block-destructive-git.sh  "$FLEET_FEAT" $'cat <<<\x27$(git push --force origin x)\x27'         'here-string single-quoted target: inert → allow'
 block "$H" "$FLEET_MASTER" 'git commit -m "x"'                           'commit while standing on master'
 block "$H" "$FLEET_MASTER" 'git push'                                    'bare push while standing on master'
 block "$H" "$FLEET_MASTER" 'git merge feature/w1-x'                      'merge while standing on master'
