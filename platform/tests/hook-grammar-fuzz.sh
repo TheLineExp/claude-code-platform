@@ -272,6 +272,20 @@ run allow block-destructive-git.sh  "$FEAT" $'git commit -F - <<EOF\necho $((1<<
 run allow block-protected-branch.sh "$FEAT" 'echo $((1<<2)) and $((3>>1)) done'                            "F9-arith"
 run allow block-destructive-git.sh  "$FEAT" 'echo $(( $(date +%s) + 1 ))'                                  "F9-arith"
 
+# (13) DOUBLE-QUOTED command substitution (F10) — bash executes `$( … )` / backticks inside
+# "…" (and inside "…" within arithmetic), which read_dq folded into opaque word text. Every
+# dangerous core buried in a double-quoted substitution must still block (Codex P2).
+for core in "${CORES[@]}"; do
+  IFS='|' read -r id hook word rest <<< "$core"
+  run block "$hook" "$FEAT" "echo \"\$($word $rest)\""             "F10-dqsub"   # "$( … )"
+  run block "$hook" "$FEAT" "X=\"\$($word $rest)\""                "F10-dqsub"   # assignment
+  run block "$hook" "$FEAT" "echo \"pre \$($word $rest) post\""    "F10-dqsub"   # mid-string
+  run block "$hook" "$FEAT" "echo \"\`$word $rest\`\""             "F10-dqsub"   # backtick in "…"
+  run block "$hook" "$FEAT" "echo \$(( \"\$($word $rest)\" + 1 ))" "F10-dqsub"   # inside arithmetic "…"
+done
+run allow block-destructive-git.sh "$FEAT" 'echo "$(date +%s) ok"'          "F10-dqsub"   # safe sub → allow
+run allow block-destructive-git.sh "$FEAT" $'echo \x27$(git push --force)\x27' "F10-dqsub"  # single-quoted → allow
+
 # ---------------------------------------------------------------------------
 echo
 echo "hooks: $HOOKS_DIR"
@@ -280,7 +294,7 @@ awk '
   $2=="leak" { leak[$1]++; totL++ }
   $2=="fp"   { fp[$1]++;   totF++ }
   END {
-    order="F1-wrapper F1-cmdword F1-combo F2-flag F2-refspec F3-context F4-falsepos F5-writer F6-nested F7-spaced F8-fakeopener F9-arith";
+    order="F1-wrapper F1-cmdword F1-combo F2-flag F2-refspec F3-context F4-falsepos F5-writer F6-nested F7-spaced F8-fakeopener F9-arith F10-dqsub";
     n=split(order,f," ");
     printf "%-24s %7s %7s %7s\n","FAMILY","TOTAL","LEAKS","FALSE+";
     for(i=1;i<=n;i++){k=f[i]; printf "%-24s %7d %7d %7d\n",k,tot[k]+0,leak[k]+0,fp[k]+0}

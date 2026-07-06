@@ -205,6 +205,15 @@ block block-destructive-git.sh  "$FLEET_FEAT" 'echo $(( $(git push --force origi
 block block-protected-branch.sh "$FLEET_FEAT" 'echo $(( $(git push origin master) + 0 ))'            'cmdsub inside $(( )): real protected push → block'
 block block-destructive-git.sh  "$FLEET_FEAT" 'echo $(( `git push --force origin x` + 1 ))'          'backtick inside $(( )): real force → block'
 allow block-destructive-git.sh  "$FLEET_FEAT" 'echo $(( $(date +%s) + 1 ))'                          'SAFE cmdsub inside $(( )): no danger → allow'
+# DOUBLE-QUOTED command substitution — bash runs `$( … )`/backticks inside "…" (read_dq folded
+# it into opaque word text → a pre-existing bypass surfaced via the arithmetic path; Codex P2).
+block block-destructive-git.sh  "$FLEET_FEAT" 'echo "$(git push --force origin main)"'              'dq cmdsub: real force → block'
+block block-destructive-git.sh  "$FLEET_FEAT" 'X="$(git push --force origin main)"'                 'dq cmdsub in assignment: real force → block'
+block block-protected-branch.sh "$FLEET_FEAT" 'echo "wrap $(git push origin master) here"'          'dq cmdsub mid-string: real protected push → block'
+block block-destructive-git.sh  "$FLEET_FEAT" 'echo "`git push --force origin x`"'                  'backtick inside dq: real force → block'
+block block-file-redirect.sh    "$FLEET_FEAT" 'echo "$(sed -i s/a/b/ src/file.ts)"'                 'dq cmdsub: real writer → block'
+allow block-destructive-git.sh  "$FLEET_FEAT" 'echo "$(date +%s) done"'                             'SAFE dq cmdsub: no danger → allow'
+allow block-destructive-git.sh  "$FLEET_FEAT" $'echo \x27$(git push --force origin x)\x27'          'single-quoted sub: not executed → allow'
 block "$H" "$FLEET_MASTER" 'git commit -m "x"'                           'commit while standing on master'
 block "$H" "$FLEET_MASTER" 'git push'                                    'bare push while standing on master'
 block "$H" "$FLEET_MASTER" 'git merge feature/w1-x'                      'merge while standing on master'

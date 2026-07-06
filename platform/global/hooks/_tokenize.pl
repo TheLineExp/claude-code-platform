@@ -148,6 +148,44 @@ sub _cmdsub {
   return (substr($s, $start, $i - $start), $i);   # unterminated → to end
 }
 
+# Scan a DOUBLE-QUOTED region for command substitutions. $i starts just past the opening `"`.
+# bash executes `$( … )` / backticks even inside "…", so emit their inner COMMANDS as items
+# (single quotes and `\`-escapes are inert). Returns the index just past the closing `"`.
+sub _scan_dq {
+  my ($items, $s, $i) = @_; my $n = length $s;
+  while ($i < $n) {
+    my $d = substr($s, $i, 1);
+    if ($d eq '\\') { $i += 2; next; }                        # \" \$ \` … — escaped, inert
+    if ($d eq '"')  { return $i + 1; }                        # end of the double-quoted run
+    if ($d eq '$' && substr($s, $i + 1, 1) eq '(') {
+      my ($inner, $ni) = _cmdsub($s, $i + 2);
+      push @$items, ['sep', '$('], scan($inner), ['sep', ')']; $i = $ni; next;
+    }
+    if ($d eq '`') {
+      my $j = index($s, '`', $i + 1); $j = $n if $j < 0;
+      push @$items, ['sep', '`'], scan(substr($s, $i + 1, $j - $i - 1)), ['sep', '`'];
+      $i = ($j < $n ? $j + 1 : $n); next;
+    }
+    $i++;
+  }
+  return $i;
+}
+
+# Emit command substitutions hidden inside DOUBLE quotes of an already-read word span.
+# read_word/read_dq fold `"$( … )"` into opaque word text, but bash still executes it — so
+# `echo "$(git push --force)"` / `X="$( … )"` must be scanned (Codex P2). An UNquoted `$(`
+# never reaches here (read_word stops at it), so every sub found here is inside quotes;
+# single-quoted spans are inert and skipped.
+sub _emit_dq_cmdsubs {
+  my ($items, $s) = @_; my $n = length $s; my $i = 0;
+  while ($i < $n) {
+    my $c = substr($s, $i, 1);
+    if ($c eq "'") { my $j = index($s, "'", $i + 1); $i = ($j < 0 ? $n : $j + 1); next; }
+    if ($c eq '"') { $i = _scan_dq($items, $s, $i + 1); next; }
+    $i++;
+  }
+}
+
 sub scan {
   my ($s) = @_; my @items; my $i = 0; my $n = length $s;
   my @pending;   # heredoc delimiters awaiting their body: [$delim, $dash]
@@ -213,7 +251,7 @@ sub scan {
           $i = ($j < $n ? $j + 1 : $n); next;
         }
         if ($ch eq "'") { my $j = index($s, "'", $i + 1); $i = ($j < 0 ? $n : $j + 1); next; }  # opaque operand
-        if ($ch eq '"') { (undef, $i) = read_dq($s, $i + 1); next; }
+        if ($ch eq '"') { $i = _scan_dq(\@items, $s, $i + 1); next; }   # "…" runs $() too (Codex P2)
         if    ($ch eq '(') { $adepth++; $i++; next; }
         elsif ($ch eq ')') { $adepth--; $i++; next; }
         $i++;   # inert arithmetic operator / operand char (`<<`, `>>`, digits, +, …)
@@ -244,7 +282,11 @@ sub scan {
     if ($c eq '|') { push @items, ['sep', '|']; $i++; next; }
     if ($c eq '&') { push @items, ['sep', '&']; $i++; next; }
     my ($w, $ni) = read_word($s, $i);
-    if ($ni > $i) { push @items, ['w', $w]; $i = $ni; }
+    if ($ni > $i) {
+      push @items, ['w', $w];
+      _emit_dq_cmdsubs(\@items, substr($s, $i, $ni - $i));   # "$( … )" hidden in the word runs too
+      $i = $ni;
+    }
     else { $i++; }   # defensive: never stall
   }
   return @items;
