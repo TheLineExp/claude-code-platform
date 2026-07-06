@@ -140,23 +140,32 @@ function stopHook() {
   // "#9 is not ready … #7 is ready to merge"). Split on sentence enders FOLLOWED BY whitespace
   // (so a '.' inside a URL never splits) or newlines.
   const required = [];               // refs a claim explicitly names in its own sentence
+  const notReady = new Set();        // refs a sentence explicitly declares NOT ready
+  const key = (r) => `${r.pr}|${r.repo || ''}`;
   let unassociatedClaim = false;     // a claim verb whose own sentence names no PR
   for (const s of text.split(/[.!?;]+\s+|[\n\r]+/)) {
-    if (!readinessRe.test(deNegate(s))) continue;
-    const refs = harvest(s);
-    if (refs.length) required.push(...refs);
-    else unassociatedClaim = true;
+    const dn = deNegate(s);
+    if (readinessRe.test(dn)) {                          // a POSITIVE claim survives here
+      const refs = harvest(s);
+      if (refs.length) required.push(...refs);
+      else unassociatedClaim = true;
+    } else if (dn !== s) {                               // deNegate removed a readiness phrase →
+      for (const r of harvest(s)) notReady.add(key(r));  // this sentence declares its PR NOT ready
+    }
   }
 
   if (!required.length && !unassociatedClaim) return;   // no readiness claim at all
 
-  // A claim whose sentence named no PR: fall back to EVERY PR ref in the message and require
-  // each verified — biased to BLOCK, so a real "ready to merge" split from its PR ref across
-  // sentences cannot slip. If no extractable PR but PR CONTEXT is present ("the staging PR is
-  // ready"), block to force naming. No PR context at all → the verb was unrelated prose.
+  // A claim whose sentence named no PR: fall back to the message's PR refs — but EXCLUDE any PR
+  // a sentence explicitly declared NOT ready (Codex: "PR #9 is not ready … Done." must not demand
+  // #9's marker). If refs remain, require them (biased to block — a real claim split from its ref
+  // cannot slip). If refs existed but were ALL not-ready, the verb was a sign-off → allow. If no
+  // extractable ref but PR CONTEXT ("the staging PR is ready"), block to force naming; else prose.
   if (unassociatedClaim) {
-    const all = harvest(text);
-    if (all.length) required.push(...all);
+    const named = harvest(text);
+    const req = named.filter((r) => !notReady.has(key(r)));
+    if (req.length) required.push(...req);
+    else if (named.length) return;                       // every named PR is not-ready → sign-off
     else if (prContextRe.test(text)) { blockReady(); return; }
     else return;
   }

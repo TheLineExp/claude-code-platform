@@ -232,6 +232,18 @@ mk_transcript "$T" "Done reviewing PR #9 for now."
 out=$(stop_decision "$T" false)
 [ -z "$out" ] && ok "stop: 'done reviewing PR #9' (activity) → allow" || bad "stop: done-gerund same-sentence" "out=$out"
 
+# thread Q: a bare completion 'Done.' after a NEGATED PR status must not demand that PR's marker.
+clear_markers
+mk_transcript "$T" "PR #9 is not ready: checks are failing. Done."
+out=$(stop_decision "$T" false)
+[ -z "$out" ] && ok "stop: bare 'Done.' after not-ready PR → allow (sign-off)" || bad "stop: bare done sign-off" "out=$out"
+
+# guard: an unassociated claim with a NON-negated PR ref still requires it (no false-pass).
+clear_markers
+mk_transcript "$T" "Finished PR #17. Done."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: unassociated claim, live PR unverified → block" || bad "stop: unassociated live PR" "out=$out"
+
 # malformed transcript → fail open (ALLOW, no crash)
 out=$(printf '{"transcript_path":"/nope","session_id":"s"}' | node "$GATE" 2>/dev/null); rc=$?
 { [ -z "$out" ] && [ "$rc" -eq 0 ]; } && ok "stop: missing transcript → fail open" || bad "stop: fail open" "out=$out rc=$rc"

@@ -286,6 +286,16 @@ done
 run allow block-destructive-git.sh "$FEAT" 'echo "$(date +%s) ok"'          "F10-dqsub"   # safe sub → allow
 run allow block-destructive-git.sh "$FEAT" $'echo \x27$(git push --force)\x27' "F10-dqsub"  # single-quoted → allow
 
+# (14) HEREDOC-body command substitution (F11) — an UNQUOTED `<<EOF` expands its body, so a
+# `$( … )`/backtick there executes; every dangerous core must block. A QUOTED `<<'EOF'` body
+# stays opaque (allow), and literal command TEXT in a body is data (allow).
+for core in "${CORES[@]}"; do
+  IFS='|' read -r id hook word rest <<< "$core"
+  run block "$hook" "$FEAT" "cat <<EOF"$'\n'"\$($word $rest)"$'\n'"EOF" "F11-heredocsub"
+done
+run allow block-destructive-git.sh "$FEAT" $'cat <<\x27EOF\x27\n$(git push --force)\nEOF' "F11-heredocsub"  # quoted delim → opaque
+run allow block-destructive-git.sh "$FEAT" $'cat <<EOF\njust git push --force text\nEOF'  "F11-heredocsub"  # literal → data
+
 # ---------------------------------------------------------------------------
 echo
 echo "hooks: $HOOKS_DIR"
@@ -294,7 +304,7 @@ awk '
   $2=="leak" { leak[$1]++; totL++ }
   $2=="fp"   { fp[$1]++;   totF++ }
   END {
-    order="F1-wrapper F1-cmdword F1-combo F2-flag F2-refspec F3-context F4-falsepos F5-writer F6-nested F7-spaced F8-fakeopener F9-arith F10-dqsub";
+    order="F1-wrapper F1-cmdword F1-combo F2-flag F2-refspec F3-context F4-falsepos F5-writer F6-nested F7-spaced F8-fakeopener F9-arith F10-dqsub F11-heredocsub";
     n=split(order,f," ");
     printf "%-24s %7s %7s %7s\n","FAMILY","TOTAL","LEAKS","FALSE+";
     for(i=1;i<=n;i++){k=f[i]; printf "%-24s %7d %7d %7d\n",k,tot[k]+0,leak[k]+0,fp[k]+0}

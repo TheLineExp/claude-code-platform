@@ -186,6 +186,27 @@ sub _emit_dq_cmdsubs {
   }
 }
 
+# Scan TEXT for command substitutions where quotes do NOT protect them — i.e. an UNQUOTED
+# heredoc body, in which bash expands `$( … )` / backticks before feeding stdin (single and
+# double quotes are literal there). Only `\$`/`\`` escapes suppress expansion.
+sub _scan_subs {
+  my ($items, $s) = @_; my $n = length $s; my $i = 0;
+  while ($i < $n) {
+    my $c = substr($s, $i, 1);
+    if ($c eq '\\') { $i += 2; next; }                        # \$ \` — escaped, inert
+    if ($c eq '$' && substr($s, $i + 1, 1) eq '(') {
+      my ($inner, $ni) = _cmdsub($s, $i + 2);
+      push @$items, ['sep', '$('], scan($inner), ['sep', ')']; $i = $ni; next;
+    }
+    if ($c eq '`') {
+      my $j = index($s, '`', $i + 1); $j = $n if $j < 0;
+      push @$items, ['sep', '`'], scan(substr($s, $i + 1, $j - $i - 1)), ['sep', '`'];
+      $i = ($j < $n ? $j + 1 : $n); next;
+    }
+    $i++;
+  }
+}
+
 sub scan {
   my ($s) = @_; my @items; my $i = 0; my $n = length $s;
   my @pending;   # heredoc delimiters awaiting their body: [$delim, $dash]
@@ -207,12 +228,21 @@ sub scan {
       # comment was never queued and cannot swallow real commands (the regex pre-strip's
       # false-NEGATIVE class). One chokepoint, one parser (the whole point of the rewrite).
       while (@pending && $i < $n) {
-        my ($d, $dash) = @{$pending[0]};
-        my $eol = index($s, "\n", $i); $eol = $n if $eol < 0;
-        my $line = substr($s, $i, $eol - $i); $line =~ s/\r$//;
-        my $t = $line; $t =~ s/^\t+// if $dash;   # <<- ignores leading TABS on the close
-        $i = ($eol < $n ? $eol + 1 : $n);
-        shift @pending if $t eq $d;               # close = the delimiter ALONE (bash exact)
+        my ($d, $dash, $quoted) = @{$pending[0]};
+        my $body = "";
+        while ($i < $n) {
+          my $eol = index($s, "\n", $i); $eol = $n if $eol < 0;
+          my $line = substr($s, $i, $eol - $i); $line =~ s/\r$//;
+          my $t = $line; $t =~ s/^\t+// if $dash; # <<- ignores leading TABS on the close
+          $i = ($eol < $n ? $eol + 1 : $n);
+          last if $t eq $d;                       # close = the delimiter ALONE (bash exact)
+          $body .= $line . "\n";
+        }
+        shift @pending;
+        # An UNQUOTED delimiter (`<<EOF`) makes bash EXPAND the body — `$( … )`/backticks in it
+        # execute before feeding stdin — so scan those subs. A quoted delimiter (`<<'EOF'`) keeps
+        # the body literal/opaque (Codex P2). Literal command TEXT in a body is still just data.
+        _scan_subs(\@items, $body) unless $quoted;
       }
       next;
     }
@@ -274,8 +304,13 @@ sub scan {
     if ($rest =~ /^(\d*)<<(-?)/) {                                         # heredoc opener — queue the delimiter; body consumed at the next newline
       $i += length($1) + 2 + length($2);
       $i++ while $i < $n && substr($s, $i, 1) =~ /[ \t]/;                  # `<< WORD` — spaces allowed before the delimiter
+      my $dstart = $i;
       my ($delim, $ni) = read_word($s, $i); $i = ($ni > $i ? $ni : $i + 1);
-      push @pending, [$delim, ($2 eq '-')] if $delim ne '';               # quoted `<<'EOF'`/`<<"EOF"` dequoted by read_word (bash matches the unquoted value)
+      # ANY quote/backslash in the RAW delimiter (`<<'EOF'`, `<<"E"OF`, `<<\EOF`) makes bash
+      # treat the body as LITERAL (no expansion); a bare `<<EOF` expands it. read_word dequotes
+      # the delimiter, so inspect the raw span to decide (drives body-scanning above).
+      my $quoted = (substr($s, $dstart, $i - $dstart) =~ /['"\\]/) ? 1 : 0;
+      push @pending, [$delim, ($2 eq '-'), $quoted] if $delim ne '';
       next;
     }
     if ($rest =~ /^(\d*)</) { $i += length($1) + 1; my ($t, $ni) = read_redir_target($s, $i); $i = $ni; next; }   # plain input redirect — skip target

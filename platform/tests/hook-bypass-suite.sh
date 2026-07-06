@@ -214,6 +214,12 @@ block block-destructive-git.sh  "$FLEET_FEAT" 'echo "`git push --force origin x`
 block block-file-redirect.sh    "$FLEET_FEAT" 'echo "$(sed -i s/a/b/ src/file.ts)"'                 'dq cmdsub: real writer → block'
 allow block-destructive-git.sh  "$FLEET_FEAT" 'echo "$(date +%s) done"'                             'SAFE dq cmdsub: no danger → allow'
 allow block-destructive-git.sh  "$FLEET_FEAT" $'echo \x27$(git push --force origin x)\x27'          'single-quoted sub: not executed → allow'
+# UNQUOTED heredoc body EXPANDS — `$( … )`/backticks in it execute; a QUOTED delimiter keeps the
+# body literal. Literal command TEXT in a body stays data either way (Codex P2).
+block block-destructive-git.sh  "$FLEET_FEAT" $'cat <<EOF\n$(git push --force origin main)\nEOF'    'unquoted heredoc body cmdsub: real force → block'
+block block-protected-branch.sh "$FLEET_FEAT" $'cat <<EOF\n$(git push origin master)\nEOF'          'unquoted heredoc body cmdsub: real protected → block'
+allow block-destructive-git.sh  "$FLEET_FEAT" $'cat <<\x27EOF\x27\n$(git push --force origin x)\nEOF' 'quoted <<EOF body: opaque → allow'
+allow block-destructive-git.sh  "$FLEET_FEAT" $'cat <<EOF\nplease git push --force later\nEOF'       'literal text in body (no sub): data → allow'
 block "$H" "$FLEET_MASTER" 'git commit -m "x"'                           'commit while standing on master'
 block "$H" "$FLEET_MASTER" 'git push'                                    'bare push while standing on master'
 block "$H" "$FLEET_MASTER" 'git merge feature/w1-x'                      'merge while standing on master'
