@@ -200,64 +200,23 @@ helper/serializer rename won't match, so still eyeball the diff — but a hit re
 discretion. Say in your ship output whether the grep fired and which pattern class.
 
 **Run the sweep as agents, not prose.** Launch BOTH (in parallel, via the Agent tool):
-1. **`parity-sweep` agent** — covers Part 1 and Part 3 below (sibling call sites, twin
-   surfaces, config/deploy surfaces, legacy data, stale tests). Give it the branch + base.
-2. **`money-concurrency-reviewer` agent** — covers Part 2 below whenever the diff touches
-   payments/refunds/vouchers/Stripe/webhooks/balances/locks/state machines. Give it the
-   branch + base; it reads whole call chains on the FINAL HEAD.
+1. **`parity-sweep` agent** — covers Parts 1 and 3 of `reference/parity-gate.md` (sibling call
+   sites, twin surfaces, config/deploy surfaces, legacy data, stale tests). Give it branch + base.
+2. **`money-concurrency-reviewer` agent** — covers Part 2 of `reference/parity-gate.md` whenever
+   the diff touches payments/refunds/vouchers/Stripe/webhooks/balances/locks/state machines. Give
+   it the branch + base; it reads whole call chains on the FINAL HEAD.
 
 A sweep report with no CHECKED-CLEAN entries, or any BLOCK verdict, **blocks the ship** —
-fix and re-run. The checklists below define what the agents must cover (and are the manual
-fallback if agents are unavailable). Optionally use graphify for reverse blast radius if the
-graph is fresher than HEAD (`graphify update . --force` is free).
+fix and re-run. **The full sweep checklist (Parts 1–3) is in `reference/parity-gate.md`** — it
+defines what the agents must cover and is the manual fallback if agents are unavailable.
+Optionally use graphify for reverse blast radius if the graph is fresher than HEAD
+(`graphify update . --force` is free).
 
 **RE-REVIEW RULE (fix-the-fix killer):** every time you address review findings (yours,
 Codex's, or Mike's), re-run BOTH agents on the NEW HEAD before pushing the fix round —
 AND re-run **`outside-reviewer`** (Step 4b) on the fix commits: every Codex round today
 receives unreviewed fix commits, which is exactly how one fix PR took 8 external review
 rounds. A fix round is a new diff and gets the full gate before it leaves the machine.
-
-**Part 1 — Parity sweep (cross-site consistency).** For each symbol/route/flag/derived-value/guard/contract in the diff:
-```bash
-# every consumer of a symbol/helper you changed — are they ALL consistent with the new behavior?
-rg -n "<symbolOrHelperName>" backend/src frontend/src
-# twin-route parity: does the org↔distributor / staff↔public sibling exist AND carry the same gate?
-rg -n "<routePath>|requireRole|isManagerForFleet|requirePartnerRole" backend/src/routes
-# flag threaded through the WHOLE chain (not just the entry gate)?
-rg -n "allowClosedDays|mode:\s*'STAFF'|readOnly" backend/src
-# migration registered in BOTH canaries?
-rg -n "<migration_name>" backend/scripts/verify-schema.js backend/scripts/repair-migrations.js
-# any test still asserting the OLD shape/value?
-rg -n "<oldValueOrHeadingOrField>" -g '*.test.*'
-```
-RED FLAGS → BLOCK: a derived value (displayStatus, fleet-tz time, `waiverSigned`) rendered raw
-on a parallel surface; a flag set at one gate but re-rejected by a downstream sibling; a new
-route whose twin lacks the role gate; a client sending a field/route the server doesn't
-consume/expose; a migration missing from a canary; a test asserting the pre-change shape.
-
-**Part 2 — Adversarial state / concurrency.** For payment/state-machine/shared-mutable code, write the answer to each:
-- For EACH exit branch of the changed function, what value does it read or RESTORE — and is it
-  stale if a second request ran concurrently? (refund lock-release-to-stale-status, over-issue TOCTOU.)
-- Is every read of mutable balance/status/idempotency INSIDE the lock? Nothing read before the
-  lock that's used after it.
-- Is the idempotency key unique per logical operation AND written atomically under the lock?
-- After any reorder/refactor: diff the GUARD SET — did `amountCents<=0`, a status-in-set check,
-  or similar get dropped or bypassed? Re-derive the whole state machine; do NOT patch only the
-  reported symptom.
-BLOCK on any "it's stale / not under the lock / a guard moved."
-
-**Part 3 — Edge / sub-case / trust-boundary.** Enumerate explicitly (don't assume the common case):
-- Sub-cases under every new default/branch: no-payment, $0/negative, authorized-vs-captured,
-  already-refunded/returned, empty/single-element, reversed/zero-length window.
-- Trust-boundary inputs: string query/form flags parsed explicitly (NOT `Boolean(req.query.x)` —
-  `'false'` is truthy); fetched URLs canonicalized + private-range-blocked + byte-bounded (SSRF);
-  a new mutation/delivery route copies the adjacent route's auth gate.
-BLOCK on any unhandled sub-case or unguarded boundary input.
-
-**Output:** list what you swept, found, and fixed — e.g. "Parity: checked 3 consumers of
-`computeRefundable`, fixed month-serializer rendering raw status. Concurrency: moved
-`alreadyRefundedCents` read inside the lock. Edge: added no-payment + $0 guards." If you
-genuinely skipped this step, state which change type made it safe to skip.
 
 ### Step 1c: Doctrine Ship Backstop (MANDATORY — fast if the plan gate was honored)
 
@@ -642,22 +601,6 @@ If a PR already exists (staging→main or staging→master), tell the user it's 
 - Production deploys after the user merges the PR
 - Database migrations run automatically as part of the deploy pipeline (migrate job)
 
-## CI/CD Pipeline (both repos)
-
-The deploy pipeline runs these jobs in order:
-1. **Setup** — determine environment from branch (staging vs production)
-2. **Pre-deploy Tests** — unit tests + frontend build check
-3. **Build Images** — Docker build + push to `fleetmanageracr.azurecr.io`
-4. **Deploy Backend** — update Azure Container App + health check
-5. **Deploy Frontend** — update Azure Container App + health check
-6. **Database Migrations** — 3-step idempotent pipeline:
-   - `repair-migrations.js` — sync checksums + detect/fix drift
-   - `npx prisma migrate deploy` — apply pending migrations (all SQL is idempotent)
-   - `verify-schema.js` — verify 123 canary checks pass
-7. **Summary** — print deployment URLs
-
-All migrations use IF NOT EXISTS / IF EXISTS guards. No more baselining, retry loops, or failure cascading. Skip migrations with `skip_migrations: true` in workflow dispatch.
-
 ## Output Format
 
 After completing, report:
@@ -733,154 +676,11 @@ Tell the user: "Worktree cleaned up. **This session's feature is shipped — end
 now** and start the next task in a fresh window (`/letsbuild` there). One feature per session:
 marathon sessions burn context, hit compaction, and produce stale state."
 
-## Error Handling
-
-- **Uncommitted changes in staging**: Stash or commit them first
-- **Merge conflicts**: Resolve manually before continuing
-- **PR already exists**: Update existing PR or link to it
-- **Push rejected**: Pull latest changes and retry
-- **Deploy fails**: Check `gh run view <id>` for details, check container logs with `az containerapp logs show`
-
-## Deployment Order (when shipping multiple repos)
-
-If changes span multiple repos, deploy in this order:
-1. **Vouchers first** (if involved) — backend service endpoints other repos depend on
-2. **Reservations second** — depends on Voucher API, provides API for FM V3 frontend
-3. **FM V3 last** — frontend depends on both Reservations and Voucher APIs
-
 ## Cross-Repo Shipping Mode
 
-**Detection:** Read `.claude/window-id` — if it starts with `x`, this is a cross-repo feature.
+**Detection:** read `.claude/window-id` — if it starts with `x`, this is a cross-repo feature spanning Vouchers / Reservations / FM V3. **Read `reference/cross-repo.md` and follow it** for affected-repo detection, per-repo commit/push, cross-referenced PR creation in deploy order (Vouchers → Reservations → FM V3), and cross-repo cleanup. All core gates (Step 1a–4b, 5b) still run per repo. Single-repo ships ignore this section.
 
-When in cross-repo mode, `/shipit` must handle multiple repos in a single session:
+## More reference
 
-### Step 0x: Identify Affected Repos
-
-```bash
-# Check which repos have changes on the cross-repo branch
-XREF=$(cat .claude/window-id | tr -d '[:space:]')
-BRANCH="feature/${XREF}-*"  # the branch slug
-
-REPOS=(
-  "/Users/mikekunz/Documents/Volo Technologies/fleetmanager-vouchers|TheLineExp/fleetmanager-vouchers"
-  "/Users/mikekunz/Documents/Volo Technologies/fleetmanager-reservations|TheLineExp/fleetmanager-reservations"
-  "/Users/mikekunz/Documents/Volo Technologies/Fleetmanager_V3|TheLineExp/Fleetmanager_V3"
-)
-
-for ENTRY in "${REPOS[@]}"; do
-  REPO_PATH="${ENTRY%%|*}"
-  REPO_REMOTE="${ENTRY##*|}"
-  cd "$REPO_PATH"
-
-  # Find the cross-repo branch in this repo
-  ACTUAL_BRANCH=$(git branch --list "feature/${XREF}-*" --format="%(refname:short)" | head -1)
-  if [ -n "$ACTUAL_BRANCH" ]; then
-    git checkout "$ACTUAL_BRANCH"
-    CHANGES=$(git diff staging --name-only 2>/dev/null | wc -l)
-    if [ "$CHANGES" -gt 0 ]; then
-      echo "CHANGES: $REPO_REMOTE on $ACTUAL_BRANCH ($CHANGES files)"
-    fi
-  fi
-done
-```
-
-### Cross-Repo PR Creation
-
-Create PRs in **deployment order** (Vouchers → Reservations → FM V3). Each PR body cross-references the others:
-
-```bash
-# After creating each PR, collect the PR numbers
-PR_URLS=()
-
-for each repo with changes (in deployment order):
-  cd <repo working dir — worktree or main checkout>
-
-  # Stage, commit, push (same as single-repo Steps 3-5)
-  git add <files>
-  git commit -m "<type>: <description>
-
-  Co-Authored-By: Claude <noreply@anthropic.com>"
-  git push origin "$BRANCH" -u
-
-  # Create PR with cross-references
-  gh pr create --repo <GITHUB_REMOTE> \
-    --base staging --head "$BRANCH" \
-    --title "<type>: <description>" --body "$(cat <<EOF
-## Summary
-<bullet points>
-
-## Cross-Repo Feature: <feature name>
-Related PRs:
-$(for URL in "${PR_URLS[@]}"; do echo "- $URL"; done)
-
-**Deploy order:** Vouchers → Reservations → FM V3
-
-## Checks
-- [ ] Backend tests pass
-- [ ] Frontend builds (if applicable)
-- [ ] No console errors
-
----
-Generated with [Claude Code](https://claude.com/claude-code)
-EOF
-)"
-
-  PR_URLS+=("$(gh pr view --repo <GITHUB_REMOTE> --json url -q .url)")
-done
-```
-
-**After all PRs are created:** Go back and update the FIRST PR's body to include links to the later PRs (since they didn't exist yet when it was created).
-
-### Cross-Repo Cleanup
-
-After all PRs are created:
-
-```bash
-for each affected repo:
-  cd <REPO_PATH>
-
-  # Remove worktree if one exists
-  git worktree remove "../<repo-name>-${XREF}" 2>/dev/null
-  git worktree prune
-
-  # Remove active-work.md registration
-  # (edit .claude/active-work.md to remove this agent's row)
-
-  # Reset window-id if it was set to xN
-  WID=$(cat .claude/window-id 2>/dev/null | tr -d '[:space:]')
-  if [[ "$WID" == x* ]]; then
-    echo "setup" > .claude/window-id
-  fi
-done
-```
-
-### Cross-Repo Output Format
-
-```
-Cross-repo feature shipped!
-
-Staging PRs (in deployment order):
-  1. Vouchers: <PR URL>
-  2. Reservations: <PR URL>
-  3. FM V3: <PR URL>
-
-> Merge in this order: Vouchers → Reservations → FM V3
-> Each merge triggers auto-deploy to staging (~5 min each).
-> Wait for each deploy to complete before merging the next.
-
-Production PRs: will create after all staging PRs are merged and verified.
-```
-
-## Post-Deploy Verification
-
-After the user merges and production deploys:
-
-```bash
-# FM V3
-curl -s https://fleetmanager-api-prod.blackmeadow-d39ebc45.westus2.azurecontainerapps.io/api/health
-# Expected: {"success":true,"message":"The Line Fleet Manager API is running",...}
-
-# Reservations
-curl -s https://reservations-api-prod.blackmeadow-d39ebc45.westus2.azurecontainerapps.io/health
-# Expected: {"status":"ok","service":"fleetmanager-reservations","environment":"production",...}
-```
+- `reference/parity-gate.md` — the full Step 1b sweep checklist (Parts 1–3: cross-site parity, adversarial state/concurrency, edge/sub-case/trust-boundary). The spec the `parity-sweep` + `money-concurrency-reviewer` agents must cover, and the manual fallback if agents are unavailable.
+- `reference/deploy-reference.md` — CI/CD pipeline stages, multi-repo deploy order, post-deploy health-check URLs, and error handling.
