@@ -113,7 +113,14 @@ function stopHook() {
   // `\bdone\b` (not just `is done`) so a bare "Done — PR #9 is open" is caught — it only
   // fires when a PR reference ALSO co-occurs (prContextRe below), so unrelated "done"
   // prose without a PR never trips it (Codex: bare-done claims with PR context).
-  const readinessRe = /(ready to (merge|ship)|good to (merge|go|ship)|safe to (merge|ship)|(is|are|now)\s+ready\b|\bdone\b|✅[^\n]*\b(ready|done|shipped)\b|\bshipped\b|all checks?\s+(are\s+)?green|0 unresolved)/i;
+  // Match a readiness CLAIM (an assertion the PR is ready), NOT verification EVIDENCE.
+  // "all checks green" / "0 unresolved" were REMOVED: they are facts a verify run prints and
+  // appear verbatim in BLOCKED reports too ("checks are failing, 0 unresolved") — treating
+  // them as claims caused a cascade of false-blocks on truthful failure reports (Codex, 3
+  // rounds). A ready claim uses a VERB (ready / done / shipped / good-to-merge); a bare
+  // evidence line with no verb is not the dangerous "merge it" assertion this gate exists to
+  // catch, and the real backstop is the marker/verify + human merge.
+  const readinessRe = /(ready to (merge|ship)|good to (merge|go|ship)|safe to (merge|ship)|(is|are|now)\s+ready\b|\bdone\b|✅[^\n]*\b(ready|done|shipped)\b|\bshipped\b)/i;
   const prContextRe = /(github\.com\/[^\s)]+\/pull\/\d+|\bPR\s*#?\d+|\bpull request\b|staging PR|production PR|prod PR)/i;
   // Don't trip on a truthful NEGATIVE report ("PR #N is not ready to merge; checks are
   // failing") — it carries PR context + a readiness substring but is the OPPOSITE of a
@@ -122,16 +129,13 @@ function stopHook() {
   // a mixed "#9 not ready but #7 is ready to merge" still matches on the positive #7, so
   // this narrows false-blocks WITHOUT opening a false-pass. prContext is tested on the
   // original text (a negated readiness phrase doesn't remove the PR reference).
-  const deNegated = text
-    // (a) a negator with a few hedge words before a readiness signal: "not ready",
-    //     "not yet ready", "isnt done", "not fully safe to merge", "no longer green".
-    .replace(/\b(not|no longer|never|isn'?t|aren'?t|won'?t|can'?t|cannot|wasn'?t|weren'?t)\s+(?:(?:yet|fully|all|quite|totally|entirely|completely|necessarily|really|actually)\s+){0,3}((safe|good|ready|able|clear)\s+to\s+\w+|ready\b|done\b|shipped\b|merged\b|green\b|good\s+to\s+(go|merge|ship))/gi, ' ')
-    // (b) negated CHECK-STATUS, where "all checks are green" can sit far from its negator
-    //     ("not all checks are green yet", "checks are not green"). Bounded to check /
-    //     quantifier filler so it cannot swallow a separate positive clause (Codex P2:
-    //     distant-negation false-block).
-    .replace(/\b(?:not|no)\s+(?:all\s+|yet\s+)*checks?\s+(?:are\s+|is\s+)?(?:not\s+)?green\b/gi, ' ')
-    .replace(/\bchecks?\s+(?:are\s+|is\s+)?(?:not|no longer|n'?t)\s+(?:all\s+|yet\s+)*green\b/gi, ' ');
+  // Neutralize a negated readiness CLAIM so a truthful "PR #N is not ready to merge" does not
+  // trip the gate, while a mixed "#9 not ready but #7 is ready to merge" still matches on the
+  // positive #7 (no false-pass). Only the CLAIM verbs need negating — evidence signals were
+  // removed from readinessRe above, so their negations ("not all checks green") are now moot.
+  const deNegated = text.replace(
+    /\b(not|no longer|never|isn'?t|aren'?t|won'?t|can'?t|cannot|wasn'?t|weren'?t)\s+(?:(?:yet|fully|quite|totally|entirely|completely|necessarily|really|actually)\s+){0,3}((safe|good|ready|able|clear)\s+to\s+\w+|ready\b|done\b|shipped\b|merged\b|good\s+to\s+(go|merge|ship))/gi,
+    ' ');
   if (!readinessRe.test(deNegated) || !prContextRe.test(text)) return;
 
   // Which PRs does the claim name? Only STRONG references — a `/pull/N` URL or an
