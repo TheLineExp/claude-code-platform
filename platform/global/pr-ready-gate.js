@@ -133,28 +133,103 @@ function stopHook() {
     return refs;
   };
 
-  // SENTENCE-SCOPE the association: a readiness verb and a PR ref bind into a claim only when
-  // they share the SAME sentence. This stops cross-sentence bleeding — a bare "done" in one
-  // sentence no longer attaches to a PR in another (Codex: "…not ready. Done investigating."),
-  // and a mixed report no longer demands a marker for the PR it says is NOT ready (Codex:
-  // "#9 is not ready … #7 is ready to merge"). Split on sentence enders FOLLOWED BY whitespace
-  // (so a '.' inside a URL never splits) or newlines.
-  const required = [];               // refs a claim explicitly names in its own sentence
-  const notReady = new Set();        // refs a sentence explicitly declares NOT ready
+  // ASSOCIATE each readiness verb with the PR it concerns, then take that PR's FINAL
+  // disposition. Same-sentence scoping stops cross-sentence bleeding (a bare "done" in one
+  // sentence must not attach to a PR in another — Codex "…not ready. Done investigating.").
+  // Two mechanisms handle a claim that is split from its PR ref, with a deliberate SAFETY
+  // ASYMMETRY — a false PASS (letting a stale ready-claim through) is the severe direction, a
+  // false BLOCK is merely annoying, so we resolve LIBERALLY toward "ready" and CONSERVATIVELY
+  // toward "not ready":
+  //   • PRONOUN CO-REFERENCE (positive, block-biased) — a clause saying "it/that/this one is
+  //     ready" with no PR of its own resolves to the last PR named ANYWHERE earlier (the
+  //     message-wide antecedent). Catches a ready-claim split from its ref across a contrast
+  //     split OR a sentence boundary (Codex "Finished PR #17. It is ready.", and the B4.2 hole
+  //     "#9 is not ready, but it is now ready").
+  //   • FINAL-DISPOSITION-WINS — clauses are read in order and the LAST thing said about a PR is
+  //     authoritative, so a `notReady` tag on an earlier clause does NOT suppress a genuine
+  //     ready-claim about the same PR in a later clause. A mixed report whose final word about a
+  //     PR is "ready" therefore still requires a fresh marker — the exact false-PASS B4.2 closes.
+  // The REVERSAL to not-ready is the risky (allow-biased) direction and is tightly gated: only an
+  // EXPLICIT PR with an explicit readiness negation ("PR #9 is not ready"), or an ELIDED negation
+  // ("…but it is not [ready]") whose antecedent is a SINGLE PR named in the SAME sentence. It is
+  // never resolved cross-sentence and never applied to a ref LIST — "it" is singular and could
+  // refer to an intervening non-PR noun ("PR #9 is ready. The prod release … but it is not").
+  const pronounRe = /\b(?:it|that|this\s+one|this\s+pr)\b/i;
+  // For the RISKY reversal only, the pronoun must be the immediate SUBJECT of the elided copula
+  // ("it is not", "that is not") — NOT a determiner in front of another noun ("that COMMIT is not",
+  // "that test is not"), which refers to a non-PR thing and must not retract the PR's ready-claim.
+  const pronounSubjectRe = /\b(?:it|that|this\s+one|this\s+pr)\s+(?:is|are|was|were|'s|'re|isn'?t|aren'?t|wasn'?t|weren'?t)\b/i;
+  // A negation reverses readiness ONLY when it negates a READINESS predicate — "ready" or
+  // "safe/good/clear to go/merge/ship". It must NOT fire on a lifecycle-status negation: "not
+  // merged/shipped/deployed/done yet" is the CANONICAL state of a ready-to-merge PR, not a
+  // retraction of readiness — treating it as one downgrades a genuine ready-claim and opens a
+  // false PASS (the severe direction). This is deliberately TIGHTER than deNegate (which folds in
+  // merged/shipped/done to keep "not shipped" from reading as a positive claim); the flip needs
+  // the narrow set. Two shapes:
+  //   readinessNegRe — an explicit readiness negation anywhere in the clause ("PR #9 is not ready").
+  //   elidedNegRe    — a gapped negation: NOTHING but an optional "yet"/"ready"/"good to …" after
+  //                    the negation ("…but it is not [ready]"). "not deployed / merged yet / done
+  //                    yet / tested / ready for prod" deliberately do NOT match.
+  // Bounded quantifiers + per-group anchoring → linear, no catastrophic backtracking.
+  // Only an UNSCOPED "not ready" reverses. `ready\b(?!\s+(?:to|for)\b)` matches bare readiness
+  // ("not ready", "not ready yet") but NOT a scoped one: "not ready FOR prod" / "not ready TO
+  // ship|promote" is a DIFFERENT readiness than the "ready to merge" a positive clause asserted,
+  // and (under last-write-wins) must not retract it — else a live merge-ready claim false-passes
+  // on an unrelated later-stage caveat. Scoped readiness is never a reversal; the positive claim
+  // stands and still requires a marker.
+  const readinessNegRe = /\b(?:not|no longer|never|isn'?t|aren'?t|won'?t|can'?t|cannot|wasn'?t|weren'?t)\s+(?:(?:yet|fully|quite|totally|entirely|completely|necessarily|really|actually)\s+){0,3}ready\b(?!\s+(?:to|for)\b)/i;
+  // The negation must be a COPULA negation ("is/are/was/were not", "isn't", …) — the readiness
+  // predicate is elided from a copular antecedent ("it IS ready … but it IS not [ready]").
+  // Auxiliary/do-support negations ("does/did/will/has/should not") negate some OTHER verb, not
+  // the readiness copula, and must NOT retract the claim ("…ready to merge, but it does not").
+  const elidedNegRe = /\b(?:(?:is|are|was|were|'s|'re)\s+(?:(?:really|actually|definitely|quite|still|currently|fully)\s+){0,2}(?:not|never|no\s+longer)|isn'?t|aren'?t|wasn'?t|weren'?t)\b(?:\s+yet)?(?:\s+(?:ready|good(?:\s+to\s+(?:go|merge|ship))?))?(?:\s+(?:yet|now|anymore))?[\s.!?,;:)\-]*$/i;
+
   const key = (r) => `${r.pr}|${r.repo || ''}`;
-  let unassociatedClaim = false;     // a claim verb whose own sentence names no PR
-  // Split on sentence enders + newlines AND contrast conjunctions ("… not ready, but … ready"),
-  // which flip polarity mid-sentence — so a mixed report requires only the PR it calls ready
-  // (Codex). NOT on bare commas: that would break a ref LIST ("PR #7, #8, #9 are ready").
-  for (const s of text.split(/[.!?;]+\s+|[\n\r]+|\s+(?:but|however|whereas|although|though)\s+/i)) {
-    const dn = deNegate(s);
-    if (readinessRe.test(dn)) {                          // a POSITIVE claim survives here
-      const refs = harvest(s);
-      if (refs.length) required.push(...refs);
-      else unassociatedClaim = true;
-    } else if (dn !== s) {                               // deNegate removed a readiness phrase →
-      for (const r of harvest(s)) notReady.add(key(r));  // this sentence declares its PR NOT ready
+  const disposition = new Map();     // key → {ref, ready} — LAST write wins (final disposition)
+  let messageReferent = [];          // last PR named ANYWHERE — antecedent for positive pronouns
+  let unassociatedClaim = false;     // a positive claim with no resolvable PR at all
+  // Split on sentence enders + newlines into sentences, then each sentence on contrast
+  // conjunctions ("… not ready, but … ready") which flip polarity mid-sentence. NOT on bare
+  // commas: that would break a ref LIST ("PR #7, #8, #9 are ready").
+  for (const sentence of text.split(/[.!?;]+\s+|[\n\r]+/)) {
+    let sentenceRefs = [];           // PR(s) named EARLIER in THIS sentence — antecedent for the flip
+    for (const s of sentence.split(/\s+(?:but|however|whereas|although|though)\s+/i)) {
+      const dn = deNegate(s);
+      const explicit = harvest(s);
+      if (explicit.length) { messageReferent = explicit; sentenceRefs = explicit; }
+      const isQuestion = /\?\s*$/.test(s);               // "…but is it not?" is doubt, not a not-ready assertion
+
+      if (readinessRe.test(dn)) {                        // POSITIVE readiness claim (block-biased):
+        // resolve the subject liberally toward "ready" (blocking is the safe direction): own refs,
+        // else a pronoun → the message-wide antecedent, else an ELIDED subject ("…but is ready to
+        // merge now") → the same-sentence antecedent (`sentenceRefs`; cross-sentence prose like
+        // "PR #9 merged. The docs are ready." yields empty sentenceRefs → unassociatedClaim, which
+        // the block-biased fallback below still BLOCKS on the message-wide #9 — never a false PASS).
+        const subject = explicit.length ? explicit
+          : (pronounRe.test(s) ? messageReferent : sentenceRefs);
+        if (subject.length) for (const r of subject) disposition.set(key(r), { ref: r, ready: true });
+        else unassociatedClaim = true;                   // a claim whose clause resolves to no PR
+      } else if (isQuestion) {                           // never REVERSE on an interrogative clause
+        continue;
+      } else if (explicit.length === 1 && readinessNegRe.test(s)) {   // ONE explicit PR + readiness negation
+        disposition.set(key(explicit[0]), { ref: explicit[0], ready: false });   // "PR #9 is not ready"
+      } else if (elidedNegRe.test(s)) {                  // ELIDED readiness negation ("…but it is not"):
+        if (explicit.length === 1) {                     // "…, but PR #9 is not"
+          disposition.set(key(explicit[0]), { ref: explicit[0], ready: false });
+        } else if (!explicit.length && pronounSubjectRe.test(s) && sentenceRefs.length === 1) {   // "PR #9 is ready, but it is not"
+          disposition.set(key(sentenceRefs[0]), { ref: sentenceRefs[0], ready: false });
+        }
+        // a MULTI-PR negation clause ("PR #9 and PR #7 are not ready") is ambiguous about which PR
+        // it retracts → leave every ref's disposition untouched (block-biased): a genuine earlier
+        // ready-claim for any of them survives and still requires a marker.
+      }
     }
+  }
+
+  const required = [];               // PRs whose FINAL disposition is "ready" — each needs a marker
+  const notReady = new Set();        // PRs whose final disposition is "not ready"
+  for (const { ref, ready } of disposition.values()) {
+    if (ready) required.push(ref); else notReady.add(key(ref));
   }
 
   if (!required.length && !unassociatedClaim) return;   // no readiness claim at all

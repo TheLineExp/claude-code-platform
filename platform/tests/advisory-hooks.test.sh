@@ -256,6 +256,206 @@ mk_transcript "$T" "PR #7 and PR #9 are ready to merge."
 out=$(stop_decision "$T" false)
 echo "$out" | grep -q '"decision":"block"' && ok "stop: ref list, one unverified → block (no false-pass)" || bad "stop: list false-pass" "out=$out"
 
+# B4.2 — CONTRAST-SPLIT PRONOUN CO-REFERENCE (the #18 false-PASS hole).
+# The ready clause after "but" uses a PRONOUN ("it") instead of repeating the PR number, and the
+# first fragment tagged #9 notReady. Pre-fix: the split dropped the PR association and the
+# notReady tag suppressed the claim → NO block → false PASS. The trailing pronoun must resolve to
+# #9 and the FINAL disposition ("ready") must require a fresh marker → BLOCK (no marker present).
+clear_markers
+mk_transcript "$T" "PR #9 is not ready, but it is now ready to merge."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: contrast-split pronoun 'it is now ready' (final=ready), no marker → block" || bad "stop: B4.2 contrast pronoun false-pass" "out=$out"
+
+# INVERSE — the final disposition after the contrast is NOT ready (gapped predicate "it is not
+# [ready]"). This is an accurate not-ready report and must NOT block (truthful blocked-state).
+clear_markers
+mk_transcript "$T" "PR #9 is ready, but it is not."
+out=$(stop_decision "$T" false)
+[ -z "$out" ] && ok "stop: contrast-split pronoun 'it is not' (final=not-ready) → allow" || bad "stop: B4.2 inverse over-block" "out=$out"
+
+# B4.2 SAFETY GUARD (review-fix): the reversal must fire ONLY on an ELIDED readiness negation.
+# A contrast/negation about a NON-readiness predicate ("not deployed/merged/done yet", "not ready
+# for prod") must NOT downgrade a genuine ready-claim — else the pronoun co-reference would open a
+# NEW false-PASS (a real "ready to merge" claim slipping past ungated). All of these must BLOCK.
+clear_markers
+mk_transcript "$T" "PR #9 is ready to merge, but it is not deployed yet."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: 'ready…but it is not deployed yet' (non-readiness neg) → block" || bad "stop: non-readiness neg false-pass" "out=$out"
+
+clear_markers
+mk_transcript "$T" "PR #9 is ready to merge. It is not done yet."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: cross-sentence 'It is not done yet' → block" || bad "stop: done-yet false-pass" "out=$out"
+
+clear_markers
+mk_transcript "$T" "PR #9 is ready to ship, but it is not ready for prod."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: 'ready…but it is not ready for prod' → block" || bad "stop: ready-for-prod false-pass" "out=$out"
+
+clear_markers
+mk_transcript "$T" "PR #9 is ready to merge, but it is not merged yet."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: 'ready…but it is not merged yet' → block" || bad "stop: merged-yet false-pass" "out=$out"
+
+# and the multi-PR widening: one trailing non-readiness negation must not clear a whole ready list.
+clear_markers
+mk_transcript "$T" "PR #7 and PR #8 are ready to merge, but it is not done deploying."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: ready list + trailing non-readiness neg → block" || bad "stop: list-wide false-pass" "out=$out"
+
+# B4.2 REFERENT-BLEED GUARD (review-fix rd2): the ELIDED-negation reversal must resolve ONLY a
+# single PR named in the SAME sentence. A pronoun in a LATER sentence (whose real antecedent is an
+# intervening non-PR noun) must NOT flip a genuinely-ready PR from an earlier sentence, and a list
+# must never be cleared by one singular pronoun. All of these must BLOCK (unverified ready-claim).
+clear_markers
+mk_transcript "$T" "PR #9 is ready to merge. The prod release will follow but it is not ready."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: cross-sentence pronoun bleed (non-PR antecedent) → block" || bad "stop: referent bleed false-pass" "out=$out"
+
+clear_markers
+mk_transcript "$T" "PR #9 is ready to merge. I also checked the config, but it is not."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: cross-sentence bare 'it is not' → block" || bad "stop: cross-sentence elided bleed" "out=$out"
+
+clear_markers
+mk_transcript "$T" "PR #7 and PR #8 are ready to merge, but it is not."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: singular 'it is not' must not clear a ready LIST → block" || bad "stop: list cleared by pronoun" "out=$out"
+
+clear_markers
+mk_transcript "$T" "PR #9 is ready to merge. The prod PR is separate and that is not ready."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: cross-sentence 'that is not ready' bleed → block" || bad "stop: that-pronoun bleed" "out=$out"
+
+# B4.2 LIFECYCLE-STATUS GUARD (review-fix rd3): the reversal must fire only on a READINESS
+# negation, NOT on a lifecycle-status negation. "not merged/shipped/deployed yet" is the canonical
+# state of a ready-to-merge PR, not a retraction of readiness — an explicit "PR #9 is not merged
+# yet" alongside a genuine ready-claim must NOT clear it. All of these must BLOCK.
+clear_markers
+mk_transcript "$T" "PR #9 is ready to merge, but PR #9 is not merged yet."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: 'ready…but PR #9 is not merged yet' (lifecycle, not readiness) → block" || bad "stop: not-merged false-pass" "out=$out"
+
+clear_markers
+mk_transcript "$T" "PR #9 is ready to merge. PR #9 is not shipped yet."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: cross-sentence 'PR #9 is not shipped yet' → block" || bad "stop: not-shipped false-pass" "out=$out"
+
+# B4.2 INTERROGATIVE GUARD: a rhetorical tag-question ("…but is it not?") is doubt, not a not-ready
+# assertion, and must not clear a genuine ready-claim → block.
+clear_markers
+mk_transcript "$T" "PR #9 is ready to merge, but is it not?"
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: rhetorical 'but is it not?' → block" || bad "stop: interrogative false-pass" "out=$out"
+
+# B4.2 ZERO-ANAPHOR GUARD (review-fix rd4): the same B4.2 hole with the pronoun ELIDED entirely —
+# a subjectless positive clause after a contrast ("…but is ready to merge now") must resolve to the
+# single same-sentence PR (final disposition = ready) and require a marker → block.
+clear_markers
+mk_transcript "$T" "PR #9 is not ready but is ready to merge now."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: zero-anaphor 'not ready but is ready to merge now' → block" || bad "stop: zero-anaphor false-pass" "out=$out"
+
+# but a later positive clause with its OWN subject noun must NOT be co-referenced to the PR (allow).
+clear_markers
+mk_transcript "$T" "PR #9 is not ready. The docs are ready."
+out=$(stop_decision "$T" false)
+[ -z "$out" ] && ok "stop: cross-sentence own-subject 'The docs are ready' → allow" || bad "stop: own-subject over-block" "out=$out"
+
+# B4.2 SCOPED-READINESS GUARD (review-fix rd5): a SCOPED readiness negation ("not ready FOR prod",
+# "not ready TO promote") is a different readiness than "ready to merge" and must NOT retract a
+# genuine merge-ready claim — the staging→prod flow. All of these must BLOCK.
+clear_markers
+mk_transcript "$T" "PR #9 is ready to merge to staging. PR #9 is not ready for prod yet."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: 'ready to merge…not ready for prod yet' → block" || bad "stop: ready-for-prod scoped false-pass" "out=$out"
+
+clear_markers
+mk_transcript "$T" "PR #9 is ready to merge, but PR #9 is not ready for prod."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: 'ready to merge, but not ready for prod' → block" || bad "stop: ready-for-prod contrast false-pass" "out=$out"
+
+clear_markers
+mk_transcript "$T" "PR #9 is ready to merge. PR #9 is not ready to promote."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: 'ready to merge…not ready to promote' → block" || bad "stop: ready-to-promote scoped false-pass" "out=$out"
+
+# and the genuine merge/ship negations must STILL reverse (truthful not-ready reports → allow).
+clear_markers
+mk_transcript "$T" "PR #9 is not ready to merge yet; still finishing review."
+out=$(stop_decision "$T" false)
+[ -z "$out" ] && ok "stop: genuine 'not ready to merge' still reverses → allow" || bad "stop: not-ready-to-merge over-block" "out=$out"
+
+# B4.2 COPULA GUARD (review-fix rd6): the elided reversal is a COPULA negation ("it is not
+# [ready]"). An auxiliary/do-support negation ("does/will/did/has/should not") negates some other
+# verb, not the readiness copula, and must NOT retract a genuine ready-claim. All of these BLOCK.
+clear_markers
+mk_transcript "$T" "PR #9 is ready to merge, but it does not."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: aux-negation 'but it does not' → block" || bad "stop: does-not false-pass" "out=$out"
+
+clear_markers
+mk_transcript "$T" "PR #9 is ready to merge, but it will not."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: aux-negation 'but it will not' → block" || bad "stop: will-not false-pass" "out=$out"
+
+clear_markers
+mk_transcript "$T" "PR #9 is ready to merge. I double-checked that PR #9 does not break the build, and it does not."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: opposite-polarity 'does not break … and it does not' → block" || bad "stop: does-not-break false-pass" "out=$out"
+
+# copula reversal still works (spec inverse + contracted form).
+clear_markers
+mk_transcript "$T" "PR #9 is ready, but it isn't."
+out=$(stop_decision "$T" false)
+[ -z "$out" ] && ok "stop: contracted copula 'but it isn't' → allow" || bad "stop: isnt-copula over-block" "out=$out"
+
+# B4.2 MULTI-REF GUARD (review-fix rd7): a negation clause naming MORE THAN ONE PR is ambiguous
+# about which it retracts and must NOT blanket-flip them all — else a genuine earlier ready-claim
+# for a co-mentioned PR gets clobbered by last-write-wins. These must BLOCK (#7 was called ready).
+clear_markers
+mk_transcript "$T" "PR #7 is ready to merge. Note that PR #9 and PR #7 are not ready."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: multi-ref 'PR #9 and PR #7 are not ready' must not clear ready #7 → block" || bad "stop: multi-ref blanket-flip false-pass" "out=$out"
+
+clear_markers
+mk_transcript "$T" "PR #7 is ready to merge. PR #9 and PR #7 are not."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: multi-ref elided 'PR #9 and PR #7 are not' → block" || bad "stop: multi-ref elided false-pass" "out=$out"
+
+# but a truthful multi-ref not-ready report with NO competing ready-claim still allows.
+clear_markers
+mk_transcript "$T" "PR #9 and PR #7 are not ready to merge; both have open threads."
+out=$(stop_decision "$T" false)
+[ -z "$out" ] && ok "stop: truthful multi-ref not-ready report → allow" || bad "stop: multi-ref truthful over-block" "out=$out"
+
+# B4.2 SCOPED-EXPLICIT GUARD (review-fix rd8): even a SAME-PR explicit negation of a DIFFERENT
+# readiness scope ("ready to merge" claimed, "not ready to ship" noted) must not retract the
+# merge-ready claim → block. Only an unscoped "not ready" reverses.
+clear_markers
+mk_transcript "$T" "PR #9 is ready to merge, but PR #9 is not ready to ship."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: same-PR scoped 'not ready to ship' must not clear merge-ready → block" || bad "stop: scoped-explicit false-pass" "out=$out"
+
+# B4.2 DETERMINER GUARD (review-fix rd9): the elided-reversal pronoun must be the copula SUBJECT
+# ("it is not"), NOT a determiner before another noun ("that COMMIT is not" refers to a non-PR
+# thing). A contrast clause about a different noun must not retract the PR's merge-ready claim.
+clear_markers
+mk_transcript "$T" "PR #9 is ready to merge, but that commit is not."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: determiner 'that commit is not' must not clear #9 → block" || bad "stop: determiner-that false-pass" "out=$out"
+
+clear_markers
+mk_transcript "$T" "PR #9 is ready to merge, however that regression test is not."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: determiner 'that test is not' (however) → block" || bad "stop: determiner-however false-pass" "out=$out"
+
+# but a genuine pronoun-subject reversal ("that is not") still allows (spec-inverse sibling).
+clear_markers
+mk_transcript "$T" "PR #9 is ready, but that is not."
+out=$(stop_decision "$T" false)
+[ -z "$out" ] && ok "stop: pronoun-subject 'that is not' → allow" || bad "stop: pronoun-subject over-block" "out=$out"
+
 # malformed transcript → fail open (ALLOW, no crash)
 out=$(printf '{"transcript_path":"/nope","session_id":"s"}' | node "$GATE" 2>/dev/null); rc=$?
 { [ -z "$out" ] && [ "$rc" -eq 0 ]; } && ok "stop: missing transcript → fail open" || bad "stop: fail open" "out=$out rc=$rc"
