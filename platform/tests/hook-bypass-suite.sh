@@ -220,6 +220,11 @@ block block-destructive-git.sh  "$FLEET_FEAT" $'cat <<EOF\n$(git push --force or
 block block-protected-branch.sh "$FLEET_FEAT" $'cat <<EOF\n$(git push origin master)\nEOF'          'unquoted heredoc body cmdsub: real protected → block'
 allow block-destructive-git.sh  "$FLEET_FEAT" $'cat <<\x27EOF\x27\n$(git push --force origin x)\nEOF' 'quoted <<EOF body: opaque → allow'
 allow block-destructive-git.sh  "$FLEET_FEAT" $'cat <<EOF\nplease git push --force later\nEOF'       'literal text in body (no sub): data → allow'
+# A redirect / here-string TARGET is expanded by bash — a dq command sub in it runs (Codex-class;
+# the last opaque text-consumer, read_redir_target). Single-quoted targets stay inert.
+block block-destructive-git.sh  "$FLEET_FEAT" 'cat <<<"$(git push --force origin main)"'            'here-string dq target cmdsub: real force → block'
+block block-protected-branch.sh "$FLEET_FEAT" 'echo hi > "$(git push origin master)"'               'write-redirect dq target cmdsub: real protected → block'
+allow block-destructive-git.sh  "$FLEET_FEAT" $'cat <<<\x27$(git push --force origin x)\x27'         'here-string single-quoted target: inert → allow'
 block "$H" "$FLEET_MASTER" 'git commit -m "x"'                           'commit while standing on master'
 block "$H" "$FLEET_MASTER" 'git push'                                    'bare push while standing on master'
 block "$H" "$FLEET_MASTER" 'git merge feature/w1-x'                      'merge while standing on master'

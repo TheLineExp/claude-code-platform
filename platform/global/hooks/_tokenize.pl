@@ -123,10 +123,16 @@ sub words_of {
 # Input redirects and fd-dups (2>&1, >&-) are consumed but never emitted.
 # ---------------------------------------------------------------------------
 sub read_redir_target {
-  my ($s, $i) = @_; my $n = length $s;
+  my ($s, $i, $items) = @_; my $n = length $s;
   while ($i < $n && substr($s, $i, 1) =~ /[ \t]/) { $i++; }
   return ("", $i) if $i >= $n || substr($s, $i, 1) =~ /[;|&<>()`\n\r]/;
-  return read_word($s, $i);
+  my ($w, $ni) = read_word($s, $i);
+  # A redirect / here-string target is EXPANDED by bash, so a command sub inside a double-quoted
+  # target runs: `cat <<<"$(git push --force)"`, `cmd > "$(evil)"`. read_word folds "$( … )" into
+  # opaque text, so scan it (Codex-class; bare `$(` targets are already handled by the main loop,
+  # which resumes on the empty target). Single-quoted targets stay inert.
+  _emit_dq_cmdsubs($items, substr($s, $i, $ni - $i)) if $items && $ni > $i;
+  return ($w, $ni);
 }
 
 # Find the end of a command substitution `$( … )`. $i starts just past the `$(`; returns
@@ -297,10 +303,10 @@ sub scan {
     # Redirects. Order matters: combined `&>`/`&>>` before the `&` background op,
     # and fd-dup `>&`/`n>&` (not a file write) before plain `>`.
     my $rest = substr($s, $i);
-    if ($rest =~ /^&>>?/) { my $op = $&; $i += length $op; my ($t, $ni) = read_redir_target($s, $i); push @items, ['redir', $t] if $t ne ""; $i = $ni; next; }
-    if ($rest =~ /^(\d*)>&/) { $i += length($1) + 2; my ($t, $ni) = read_redir_target($s, $i); $i = $ni; next; }   # fd dup — skip
-    if ($rest =~ /^(\d*)(>>|>\||>)/) { $i += length($1) + length($2); my ($t, $ni) = read_redir_target($s, $i); push @items, ['redir', $t] if $t ne ""; $i = $ni; next; }
-    if ($rest =~ /^(\d*)<<</) { $i += length($1) + 3; my ($t, $ni) = read_redir_target($s, $i); $i = $ni; next; }   # here-string <<< — one word, no body
+    if ($rest =~ /^&>>?/) { my $op = $&; $i += length $op; my ($t, $ni) = read_redir_target($s, $i, \@items); push @items, ['redir', $t] if $t ne ""; $i = $ni; next; }
+    if ($rest =~ /^(\d*)>&/) { $i += length($1) + 2; my ($t, $ni) = read_redir_target($s, $i, \@items); $i = $ni; next; }   # fd dup — skip
+    if ($rest =~ /^(\d*)(>>|>\||>)/) { $i += length($1) + length($2); my ($t, $ni) = read_redir_target($s, $i, \@items); push @items, ['redir', $t] if $t ne ""; $i = $ni; next; }
+    if ($rest =~ /^(\d*)<<</) { $i += length($1) + 3; my ($t, $ni) = read_redir_target($s, $i, \@items); $i = $ni; next; }   # here-string <<< — one word, no body
     if ($rest =~ /^(\d*)<<(-?)/) {                                         # heredoc opener — queue the delimiter; body consumed at the next newline
       $i += length($1) + 2 + length($2);
       $i++ while $i < $n && substr($s, $i, 1) =~ /[ \t]/;                  # `<< WORD` — spaces allowed before the delimiter
@@ -313,7 +319,7 @@ sub scan {
       push @pending, [$delim, ($2 eq '-'), $quoted] if $delim ne '';
       next;
     }
-    if ($rest =~ /^(\d*)</) { $i += length($1) + 1; my ($t, $ni) = read_redir_target($s, $i); $i = $ni; next; }   # plain input redirect — skip target
+    if ($rest =~ /^(\d*)</) { $i += length($1) + 1; my ($t, $ni) = read_redir_target($s, $i, \@items); $i = $ni; next; }   # plain input redirect — skip target
     if ($c eq '|') { push @items, ['sep', '|']; $i++; next; }
     if ($c eq '&') { push @items, ['sep', '&']; $i++; next; }
     my ($w, $ni) = read_word($s, $i);
