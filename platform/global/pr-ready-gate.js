@@ -61,14 +61,17 @@ function verify(argv) {
   }
 
   // 2. Unresolved review threads (Codex comments live here) — the Step 5b GraphQL count.
+  //    PAGINATED: `reviewThreads(first:100)` alone misses an unresolved thread on a later
+  //    page of a Codex-heavy PR → false PASS. The query carries pageInfo + $endCursor and
+  //    `--paginate` walks every page; `--jq` emits one count per page, which we sum (Codex).
   let unresolved = null;
   try {
-    const q = 'query($owner:String!,$repo:String!,$pr:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$pr){reviewThreads(first:100){nodes{isResolved}}}}}';
-    const out = run('gh', ['api', 'graphql', '-f', `query=${q}`,
+    const q = 'query($owner:String!,$repo:String!,$pr:Int!,$endCursor:String){repository(owner:$owner,name:$repo){pullRequest(number:$pr){reviewThreads(first:100,after:$endCursor){nodes{isResolved} pageInfo{hasNextPage endCursor}}}}}';
+    const out = run('gh', ['api', 'graphql', '--paginate', '-f', `query=${q}`,
       '-f', `owner=${owner}`, '-f', `repo=${repo}`, '-F', `pr=${pr}`,
       '--jq', '[.data.repository.pullRequest.reviewThreads.nodes[]|select(.isResolved==false)]|length']);
-    unresolved = parseInt(firstLine(out), 10);
-    if (Number.isNaN(unresolved)) unresolved = null;
+    const counts = out.split('\n').map(s => parseInt(s.trim(), 10)).filter(n => !Number.isNaN(n));
+    unresolved = counts.length ? counts.reduce((a, b) => a + b, 0) : null;
   } catch (e) { unresolved = null; }
 
   const pass = checksGreen && unresolved === 0;
@@ -107,7 +110,10 @@ function stopHook() {
 
   // Fire only on a genuine PR-readiness CLAIM: a readiness state AND a PR reference must
   // co-occur — so ordinary "done" in unrelated prose never trips it.
-  const readinessRe = /(ready to (merge|ship)|good to (merge|go|ship)|safe to (merge|ship)|(is|are|now)\s+ready\b|is done\b|✅[^\n]*\b(ready|done|shipped)\b|\bshipped\b|all checks?\s+(are\s+)?green|0 unresolved)/i;
+  // `\bdone\b` (not just `is done`) so a bare "Done — PR #9 is open" is caught — it only
+  // fires when a PR reference ALSO co-occurs (prContextRe below), so unrelated "done"
+  // prose without a PR never trips it (Codex: bare-done claims with PR context).
+  const readinessRe = /(ready to (merge|ship)|good to (merge|go|ship)|safe to (merge|ship)|(is|are|now)\s+ready\b|\bdone\b|✅[^\n]*\b(ready|done|shipped)\b|\bshipped\b|all checks?\s+(are\s+)?green|0 unresolved)/i;
   const prContextRe = /(github\.com\/[^\s)]+\/pull\/\d+|\bPR\s*#?\d+|\bpull request\b|staging PR|production PR|prod PR)/i;
   if (!readinessRe.test(text) || !prContextRe.test(text)) return;
 
@@ -165,6 +171,19 @@ function hasFreshPass(prRefs) {
   return true;
 }
 
+// ── INVALIDATE MODE ─────────────────────────────────────────────────────────────
+// `node pr-ready-gate.js invalidate <owner/repo> <pr#>` — delete a PR's PASS marker.
+// check-fix-landed.sh calls this on every push: a push moves the PR head, which can
+// reset checks to pending/failing, so a marker written before that push must NOT keep
+// certifying the PR "ready" for the rest of its 20-min window (Codex P1: head-SHA
+// staleness). Re-running verify after the push re-writes a fresh marker. Best-effort.
+function invalidate(argv) {
+  const m = String(argv[0] || '').match(/^([^/]+)\/([^/]+)$/);
+  const pr = String(argv[1] || '').replace(/[^0-9]/g, '');
+  if (!m || !pr) return;
+  try { fs.unlinkSync(markerPath(m[1], m[2], pr)); } catch { /* absent → nothing to invalidate */ }
+}
+
 function lastAssistantText(transcript) {
   let data;
   try { data = fs.readFileSync(transcript, 'utf8'); } catch { return ''; }
@@ -202,6 +221,7 @@ function pruneOld() {
 try {
   const argv = process.argv.slice(2);
   if (argv[0] === 'verify') verify(argv.slice(1));
+  else if (argv[0] === 'invalidate') invalidate(argv.slice(1));
   else stopHook();
 } catch { /* fail open — never break a session */ }
 process.exit(0);

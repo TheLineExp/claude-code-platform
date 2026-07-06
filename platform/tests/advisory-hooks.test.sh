@@ -26,13 +26,19 @@ export TMPDIR="$TMP/tmpdir"; mkdir -p "$TMPDIR"   # isolates pr-ready marker dir
 STUB="$TMP/bin"; mkdir -p "$STUB"
 cat > "$STUB/gh" <<'SH'
 #!/bin/bash
-# Canned gh. $GH_MODE selects behavior; all git-independent.
+# Canned gh. $GH_MODE selects behavior; all git-independent. URLs are real github.com
+# form so check-fix-landed can parse owner/repo for the pr-ready invalidate call.
+sub="$1 $2"
 case "$GH_MODE" in
-  nopr)     [ "$1" = pr ] && [ "$2" = list ] && { echo '[]'; exit 0; } ;;
-  open)     [ "$1" = pr ] && [ "$2" = list ] && { echo "[{\"number\":9,\"state\":\"OPEN\",\"baseRefName\":\"staging\",\"url\":\"http://x/9\"}]"; exit 0; } ;;
-  merged)   [ "$1" = pr ] && [ "$2" = list ] && { echo "[{\"number\":9,\"state\":\"MERGED\",\"baseRefName\":\"master\",\"url\":\"http://x/9\"}]"; exit 0; } ;;
-  closed)   [ "$1" = pr ] && [ "$2" = list ] && { echo "[{\"number\":9,\"state\":\"CLOSED\",\"baseRefName\":\"master\",\"url\":\"http://x/9\"}]"; exit 0; } ;;
-  fail)     [ "$1" = pr ] && [ "$2" = list ] && { echo "gh: could not authenticate" >&2; exit 4; } ;;   # network/auth failure
+  nopr)     [ "$sub" = "pr list" ] && { echo '[]'; exit 0; } ;;
+  open)     [ "$sub" = "pr list" ] && { echo "[{\"number\":9,\"state\":\"OPEN\",\"baseRefName\":\"staging\",\"url\":\"https://github.com/o/r/pull/9\"}]"; exit 0; } ;;
+  merged)   [ "$sub" = "pr list" ] && { echo "[{\"number\":9,\"state\":\"MERGED\",\"baseRefName\":\"master\",\"url\":\"https://github.com/o/r/pull/9\"}]"; exit 0; } ;;
+  closed)   [ "$sub" = "pr list" ] && { echo "[{\"number\":9,\"state\":\"CLOSED\",\"baseRefName\":\"master\",\"url\":\"https://github.com/o/r/pull/9\"}]"; exit 0; } ;;
+  fail)     [ "$sub" = "pr list" ] && { echo "gh: could not authenticate" >&2; exit 4; } ;;   # network/auth failure
+  # verify-mode paths: `pr checks` green; `api graphql --paginate` emits one unresolved
+  # count PER PAGE (two pages here) so the sum exercises pagination.
+  verify0)  [ "$sub" = "pr checks" ] && { echo "all green"; exit 0; }; [ "$sub" = "api graphql" ] && { printf '0\n0\n'; exit 0; } ;;
+  verify1)  [ "$sub" = "pr checks" ] && { echo "all green"; exit 0; }; [ "$sub" = "api graphql" ] && { printf '0\n1\n'; exit 0; } ;;
 esac
 exit 0
 SH
@@ -113,6 +119,35 @@ echo "$out" | grep -q '"decision":"block"' && ok "stop: cross-repo #9 marker →
 clear_markers; mark_pass theowner therepo 9
 out=$(stop_decision "$T" false)
 [ -z "$out" ] && ok "stop: URL claim, same-repo marker → allow" || bad "stop: same-repo URL should allow" "out=$out"
+
+# bare "Done — PR #9 is open" (readiness = bare 'done') + PR context + no marker → BLOCK
+clear_markers
+mk_transcript "$T" "Done — PR #9 is open."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: bare 'Done' + PR ref → block" || bad "stop: bare done + PR" "out=$out"
+
+# plain 'done' with NO PR context → ALLOW (bare-done must not over-trigger)
+clear_markers
+mk_transcript "$T" "Done reviewing the code; everything reads fine."
+out=$(stop_decision "$T" false)
+[ -z "$out" ] && ok "stop: bare 'done', no PR → allow" || bad "stop: bare done over-trigger" "out=$out"
+
+# invalidate mode clears a fresh marker → a subsequent claim BLOCKS (Codex P1 head-staleness)
+clear_markers; mark_pass o r 9
+node "$GATE" invalidate o/r 9 >/dev/null 2>&1
+mk_transcript "$T" "PR #9 is ready to merge."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "invalidate: marker cleared → block" || bad "stop: invalidate unit" "out=$out"
+
+# verify mode, PAGINATED unresolved threads: an unresolved thread on page 2 → FAIL(1)
+clear_markers
+GH_MODE=verify1 PATH="$STUB:$PATH" node "$GATE" verify o/r 9 >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && ok "verify: paginated unresolved (page 2) → FAIL(1)" || bad "verify paginate FAIL" "rc=$rc"
+
+# verify mode, all pages resolved + checks green → PASS(0) marker written
+clear_markers
+GH_MODE=verify0 PATH="$STUB:$PATH" node "$GATE" verify o/r 9 >/dev/null 2>&1; rc=$?
+{ [ "$rc" -eq 0 ] && [ -f "$TMPDIR/claude-pr-ready/o_r_9.json" ]; } && ok "verify: paginated all-resolved → PASS(0)" || bad "verify paginate PASS" "rc=$rc"
 
 # no PR reference (plain 'done') → ALLOW even with no marker
 clear_markers
@@ -198,6 +233,12 @@ GH_MODE=closed; out=$(feed 'git push origin feature/w1-x')
 # not cry a false "NO open PR" orphan (Codex P2: a lookup failure ≠ a successful []).
 GH_MODE=fail; out=$(feed 'git push origin feature/w1-x')
 { echo "$out" | grep -q 'rc=0' && [ "$(echo "$out" | grep -c 'NO open PR')" = 0 ]; } && ok "cfl: gh lookup fails → silent(0)" || bad "cfl: gh-fail false orphan" "$out"
+
+# push resolving an OPEN PR invalidates that PR's PR-Ready marker (Codex P1 head-staleness):
+# the pushed head is unverified until re-verify, so the stale PASS must be cleared.
+clear_markers; mark_pass o r 9
+GH_MODE=open; feed 'git push origin feature/w1-x' >/dev/null 2>&1
+[ ! -f "$TMPDIR/claude-pr-ready/o_r_9.json" ] && ok "cfl: push invalidates pr-ready marker" || bad "cfl: push should invalidate marker" "marker still present"
 
 # commit while standing ON a deploy branch → out of scope, silent exit 0
 git -C "$FX" checkout -q -b master 2>/dev/null || git -C "$FX" checkout -q master

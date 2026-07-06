@@ -89,6 +89,20 @@ if a:
 ' 2>/dev/null)
 IFS=$'\t' read -r PR_NUM PR_STATE PR_BASE PR_URL <<< "$PARSE"
 
+# A PUSH moves the PR head → any PR-Ready PASS marker written before it now certifies a
+# stale head. Invalidate it so the next "ready" claim must re-verify (Codex P1). The
+# pr-ready-gate owns the marker path, so we call its invalidate mode rather than
+# reconstruct it here. Best-effort, silent, never affects this hook's own decision.
+if [ "$ACTION" = push ] && [ -n "$PR_NUM" ] && [ -n "$PR_URL" ]; then
+  OWNER_REPO=$(printf '%s' "$PR_URL" | sed -E 's#^https?://[^/]+/([^/]+/[^/]+)/pull/.*#\1#')
+  # pr-ready-gate.js sits next to this hook when DEPLOYED (~/.claude/hooks/) but one
+  # level up in the canonical repo (platform/global/) — try both layouts.
+  GATE="$SCRIPT_DIR/pr-ready-gate.js"; [ -f "$GATE" ] || GATE="$SCRIPT_DIR/../pr-ready-gate.js"
+  if [ "$OWNER_REPO" != "$PR_URL" ] && [ -f "$GATE" ] && command -v node >/dev/null 2>&1; then
+    node "$GATE" invalidate "$OWNER_REPO" "$PR_NUM" >/dev/null 2>&1 || true
+  fi
+fi
+
 # --- No PR for this branch ---
 if [ -z "$PR_NUM" ]; then
   if [ "$ACTION" = push ]; then
