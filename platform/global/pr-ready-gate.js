@@ -143,7 +143,10 @@ function stopHook() {
   const notReady = new Set();        // refs a sentence explicitly declares NOT ready
   const key = (r) => `${r.pr}|${r.repo || ''}`;
   let unassociatedClaim = false;     // a claim verb whose own sentence names no PR
-  for (const s of text.split(/[.!?;]+\s+|[\n\r]+/)) {
+  // Split on sentence enders + newlines AND contrast conjunctions ("… not ready, but … ready"),
+  // which flip polarity mid-sentence — so a mixed report requires only the PR it calls ready
+  // (Codex). NOT on bare commas: that would break a ref LIST ("PR #7, #8, #9 are ready").
+  for (const s of text.split(/[.!?;]+\s+|[\n\r]+|\s+(?:but|however|whereas|although|though)\s+/i)) {
     const dn = deNegate(s);
     if (readinessRe.test(dn)) {                          // a POSITIVE claim survives here
       const refs = harvest(s);

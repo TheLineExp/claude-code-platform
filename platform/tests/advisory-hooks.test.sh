@@ -244,6 +244,18 @@ mk_transcript "$T" "Finished PR #17. Done."
 out=$(stop_decision "$T" false)
 echo "$out" | grep -q '"decision":"block"' && ok "stop: unassociated claim, live PR unverified → block" || bad "stop: unassociated live PR" "out=$out"
 
+# intra-sentence MIXED polarity ("#9 not ready, but #7 ready") — split on the contrast
+# conjunction so only the ready PR (#7, verified) is required, not the not-ready #9.
+clear_markers; mark_pass o r 7
+mk_transcript "$T" "PR #9 is not ready, but PR #7 is ready to merge."
+out=$(stop_decision "$T" false)
+[ -z "$out" ] && ok "stop: intra-sentence mixed (but), ready PR verified → allow" || bad "stop: intra-sentence mixed" "out=$out"
+# a ref LIST must still require ALL (contrast-split must not break lists → no false-pass)
+clear_markers; mark_pass o r 7
+mk_transcript "$T" "PR #7 and PR #9 are ready to merge."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: ref list, one unverified → block (no false-pass)" || bad "stop: list false-pass" "out=$out"
+
 # malformed transcript → fail open (ALLOW, no crash)
 out=$(printf '{"transcript_path":"/nope","session_id":"s"}' | node "$GATE" 2>/dev/null); rc=$?
 { [ -z "$out" ] && [ "$rc" -eq 0 ]; } && ok "stop: missing transcript → fail open" || bad "stop: fail open" "out=$out rc=$rc"
