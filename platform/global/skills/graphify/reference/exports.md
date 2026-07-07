@@ -1,14 +1,28 @@
 # graphify — optional exports (wiki / neo4j / svg / graphml / mcp)
 
-Loaded on demand from `build-pipeline.md` when the matching flag was passed. Run these
-AFTER Step 6 (HTML/Obsidian) and BEFORE Step 8/9 cleanup — `--wiki` needs `.graphify_labels.json`,
-which Step 9 deletes. Run only the export(s) whose flag was given; skip the rest.
+Reached two ways (the dispatcher decides by whether `graphify-out/graph.json` already exists):
+
+1. **Fast path — graph already exists (most common):** the dispatcher routes the export flag
+   straight here. These exports read only *permanent* build artifacts — `graphify-out/graph.json`
+   (all of them) and `.graphify_labels.json` (`--wiki`, written at Step 5) — and BOTH survive
+   Step 9 cleanup, so there is nothing to rebuild. Run only the matching export command(s)
+   below directly; do NOT re-run the build. (The "Step 6b / Step 7…" labels and the
+   "before Step 8/9 cleanup" ordering only apply when this file is reached from inside a build
+   — see path 2; standalone, ordering is irrelevant.)
+2. **From inside a build — no graph existed yet:** `build-pipeline.md`'s "Optional exports"
+   step reads this file after Step 6 (HTML/Obsidian). The file-producing exports run there
+   before Step 9 cleanup; `--mcp` starts its blocking server only after Step 9 (it never
+   returns).
+
+Run only the export(s) whose flag was given; skip the rest.
 
 ### Step 6b - Wiki (only if --wiki flag)
 
 **Only run this step if `--wiki` was explicitly given in the original command.**
 
-Run this before Step 9 (cleanup) so `.graphify_labels.json` is still available.
+Needs `.graphify_labels.json` (written at Step 5). That file — like `graph.json` — is NOT
+removed by Step 9 cleanup, so this export works whether run standalone on an existing graph
+or from inside a build.
 
 ```bash
 graphify export wiki
@@ -43,6 +57,11 @@ graphify export graphml
 ```
 
 ### Step 7d - MCP server (only if --mcp flag)
+
+Serves the existing `graphify-out/graph.json`. This is a **blocking, long-running foreground
+server that never returns** — so it must be the LAST action: run it directly on the fast path,
+or, when reached from inside a build, only AFTER Step 9 cleanup/report have finished (never
+before, or Steps 8/9 will never run).
 
 ```bash
 python3 -m graphify.serve graphify-out/graph.json

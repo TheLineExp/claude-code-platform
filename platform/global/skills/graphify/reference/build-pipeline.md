@@ -3,7 +3,7 @@
 Loaded on demand by the `/graphify` core skill for a **full build** (bare path / GitHub URL /
 `--mode` / any invocation that implies fresh extraction). Follow the steps in order; do not
 skip steps. Video/audio transcription (Step 2.5) runs inline only if video files are detected.
-Optional exports (`--wiki`/`--neo4j`/`--svg`/`--graphml`/`--mcp`) are in `exports.md`.
+Optional exports (`--wiki`/`--neo4j`/`--neo4j-push`/`--svg`/`--graphml`/`--mcp`) are in `exports.md`.
 
 
 ### Step 0 - Clone GitHub repo(s) (only if a GitHub URL was given)
@@ -190,7 +190,7 @@ Print it once, then continue. If `GEMINI_API_KEY` or `GOOGLE_API_KEY` IS set, us
 
 Note: Parallelizing AST + semantic saves 5-15s on large corpora. AST is deterministic and fast; start it while subagents are processing docs/papers.
 
-#### Part A - Structural extraction for code files
+#### Step 3A / Part A - Structural extraction for code files (AST)
 
 For any code files detected, run AST extraction in parallel with Part B subagents:
 
@@ -216,7 +216,7 @@ else:
 "
 ```
 
-#### Part B - Semantic extraction (parallel subagents)
+#### Step 3B / Part B - Semantic extraction (parallel subagents)
 
 **Fast path:** If detection found zero docs, papers, and images (code-only corpus), skip Part B entirely and go straight to Part C. AST handles code - there is nothing for semantic subagents to do.
 
@@ -424,7 +424,7 @@ print(f'Extraction complete - {len(deduped)} nodes, {len(all_edges)} edges ({len
 ```
 Clean up temp files: `rm -f graphify-out/.graphify_cached.json graphify-out/.graphify_uncached.txt graphify-out/.graphify_semantic_new.json`
 
-#### Part C - Merge AST + semantic into final extraction
+#### Step 3C / Part C - Merge AST + semantic into final extraction
 
 ```bash
 $(cat graphify-out/.graphify_python) -c "
@@ -570,11 +570,16 @@ graphify export html  # auto-aggregates to community view if graph > 5000 nodes
 # or: graphify export html --no-viz
 ```
 
-### Optional exports (run BEFORE Step 8/9 cleanup)
+### Optional exports (file exports run BEFORE Step 8/9 cleanup)
 
-If `--wiki`, `--neo4j`, `--neo4j-push`, `--svg`, `--graphml`, or `--mcp` was passed, read
-`exports.md` now and run the matching export(s). They MUST run before Step 9 deletes
-the temp files (e.g. `--wiki` needs `.graphify_labels.json`). Then continue with Step 8/9.
+If `--wiki`, `--neo4j`, `--neo4j-push`, `--svg`, or `--graphml` was passed, read `exports.md`
+now and run the matching file export(s) here, then continue with Step 8/9. (`graph.json` and
+`.graphify_labels.json` both survive Step 9, so these do not strictly depend on ordering, but
+running them here keeps the final report last.)
+
+**Exception — `--mcp`:** its server blocks and never returns, so do NOT start it here. Finish
+Steps 8/9 (benchmark, manifest, cleanup, report) first, then start the MCP server from
+`exports.md` as the very last action.
 
 ### Step 8 - Token reduction benchmark (only if total_words > 5000)
 

@@ -4,6 +4,17 @@ Loaded on demand by the `/graphify` core skill for incremental re-extraction and
 integrations. Run the interpreter guard first, then the section matching the flag/subcommand:
 `--update`, `--cluster-only`, `--watch`, the git commit hook, or native CLAUDE.md integration.
 
+> **`--update` and `--cluster-only` reuse the build Steps 3–9, which are DEFINED in
+> `build-pipeline.md`, not here.** If you are running either of those, FIRST read
+> `build-pipeline.md` for those Step definitions, then follow the incremental / cluster-only
+> flow below:
+> - `--update` re-enters at Step 3 Part A (3A, AST) and runs Steps 4–8, then saves the
+>   manifest **inline** here (see below) — it does NOT run build-pipeline's Step 9.
+> - `--cluster-only` re-enters at Step 5 (label) and runs Steps 5–9.
+>
+> (`--watch`, the git commit hook, and native integration are self-contained CLI commands
+> below and do NOT need `build-pipeline.md`.)
+
 ## Interpreter guard for subcommands
 
 Before running any subcommand below (`--update`, `--cluster-only`, `query`, `path`, `explain`, `add`), check that `.graphify_python` exists. If it's missing (e.g. user deleted `graphify-out/`), re-resolve the interpreter first:

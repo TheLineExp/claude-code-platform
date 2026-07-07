@@ -53,16 +53,23 @@ If the user invoked `/graphify --help` or `/graphify -h` (with no other argument
 
 If no path was given, use `.` (current directory). Do not ask the user for a path.
 
-## Routing — read the ONE reference file for the branch you're on
+## Routing — read the reference file(s) for the branch you're on
 
-This core file is the dispatcher; each branch's full instructions live in a sibling `reference/*.md`. Read the matching file and follow it — do not run a branch from memory.
+This core file is the dispatcher; each branch's full instructions live in sibling `reference/*.md` files. Read the file(s) named for your branch and follow them — do not run a branch from memory. Most branches are ONE file. Two exceptions involve `build-pipeline.md`'s shared Step 3A–9 definitions:
+
+- **`--update` / `--cluster-only`** always re-enter the build (at Step 3A / Step 5 respectively), so they load `build-pipeline.md` **then** their mode file `maintenance.md`.
+- **Export flags** (`--wiki` etc.) read only *permanent* build artifacts (`graph.json`, and `--wiki` also `.graphify_labels.json` — both survive cleanup), so they take the same graph-exists fast path as queries: if `graphify-out/graph.json` already exists, read only `exports.md` and export directly (no rebuild); only when no graph exists yet do they fall back to a full build via `build-pipeline.md`.
+
+Either way the hot query path (the common case) still loads only `query.md`.
 
 | Invocation | Read | Then |
 |---|---|---|
 | Graph exists + NL question; or `query` / `path` / `explain` / `add` | `reference/query.md` | run the query (hot path — never rebuild) |
 | Bare path / GitHub URL / `--mode` / anything implying fresh extraction | `reference/build-pipeline.md` | run the full build, Steps 0–9 |
-| `--wiki` / `--neo4j` / `--neo4j-push` / `--svg` / `--graphml` / `--mcp` | `reference/exports.md` | (build-pipeline reads this before cleanup) |
-| `--update` / `--cluster-only` / `--watch` / git hook / `graphify claude install` | `reference/maintenance.md` | incremental / integration flow |
+| `--wiki` / `--neo4j` / `--neo4j-push` / `--svg` / `--graphml` | graph exists → `reference/exports.md`; no graph → `reference/build-pipeline.md` | Graph exists → run the matching export directly on it (fast path — NO rebuild). No graph → run the full build first; its "Optional exports" step reads `exports.md` and runs the export before Step 9 cleanup |
+| `--mcp` | graph exists → `reference/exports.md`; no graph → `reference/build-pipeline.md` | Serve the existing graph directly (fast path — the server blocks and never returns, so it is the final action). No graph → build first, then start the server as the LAST step (after Step 9) |
+| `--update` / `--cluster-only` | `reference/build-pipeline.md` (for the Step 3A–9 definitions) **then** `reference/maintenance.md` | run the incremental / cluster-only flow in `maintenance.md`, which re-enters those build Steps |
+| `--watch` / git commit hook / `graphify claude install` | `reference/maintenance.md` | always-on integration flow (self-contained — no build Steps) |
 
 A GitHub URL (`https://github.com/...`) means clone first — that is Step 0 inside `reference/build-pipeline.md`. When torn between query and build: if `graphify-out/graph.json` exists and the user asked a question, it is query; otherwise it is build. `--help` is handled above (print Usage, stop).
 
