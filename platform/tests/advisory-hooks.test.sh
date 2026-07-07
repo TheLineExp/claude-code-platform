@@ -78,7 +78,7 @@ T="$TMP/t.jsonl"
 # ── block-biased core: a live readiness token + a referenced PR w/o a fresh marker → BLOCK
 # claim + PR reference (URL) + NO marker → BLOCK
 clear_markers
-mk_transcript "$T" "The staging PR is ready to merge: https://github.com/o/r/pull/9"
+mk_transcript "$T" "Ready to merge: https://github.com/o/r/pull/9"
 out=$(stop_decision "$T" false)
 echo "$out" | grep -q '"decision":"block"' && ok "stop: ready+PR, no marker → block" || bad "stop: ready+PR, no marker" "out=$out"
 
@@ -204,20 +204,35 @@ mk_transcript "$T" "The staging PR is ready to merge."
 out=$(stop_decision "$T" false)
 echo "$out" | grep -q '"decision":"block"' && ok "stop: PR context, no number → block" || bad "stop: no-number auto-pass" "out=$out"
 
-# outside-review P1: a verified NUMBERED PR must NOT suppress the unnumbered-PR block. Here #7
-# has a fresh marker, but "The prod PR is ready" is a SECOND PR named without a number — the
-# excess PR-word (2 words > 1 numbered ref) → BLOCK (staging-verified/prod-unverified hole).
+# outside-review P1 (both rounds): a verified NUMBERED PR must NOT suppress the block on a
+# co-occurring UNNUMBERED PR ready-claim — no matter how the numbered sibling is spelled
+# (PR #N / bare #N / URL). Any "PR"/"pull request" word not followed by a number = an
+# unverifiable PR → BLOCK, even when every numbered ref has a fresh marker.
 clear_markers; mark_pass o r 7
 mk_transcript "$T" "Staging PR #7 is verified and ready. The prod PR is ready to merge."
 out=$(stop_decision "$T" false)
-echo "$out" | grep -q '"decision":"block"' && ok "stop: verified #7 + unnumbered 'prod PR' → block (P1)" || bad "stop: prod-PR false-pass" "out=$out"
+echo "$out" | grep -q '"decision":"block"' && ok "stop: verified 'PR #7' + unnumbered 'prod PR' → block" || bad "stop: prod-PR false-pass (word)" "out=$out"
 
-# but a single verified PR described with prose + its own URL must still ALLOW (1 PR-word =
-# 1 numbered ref → no excess; the count fix must not false-block the routine 'here is the PR').
+# bare-#N spelling of the verified sibling (round-2 residual) → still BLOCK
+clear_markers; mark_pass o r 7
+mk_transcript "$T" "#7 verified and ready. The prod PR is ready to merge."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: verified bare '#7' + unnumbered 'prod PR' → block" || bad "stop: prod-PR false-pass (#N)" "out=$out"
+
+# URL spelling of the verified sibling (round-2 residual; URL is the house convention) → BLOCK
+clear_markers; mark_pass o r 7
+mk_transcript "$T" "Verified: https://github.com/o/r/pull/7 all green. The prod PR is ready to merge."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: verified URL sibling + unnumbered 'prod PR' → block" || bad "stop: prod-PR false-pass (URL)" "out=$out"
+
+# ACCEPTED false-block: an unnumbered "PR" word blocks even when it IS the same, verified PR —
+# sameness can't be proven without the cross-clause reasoning this redesign forbids, so block
+# is the only safe resolution (brief: benign false-blocks accepted). Model avoids it by naming
+# the number ("PR #5 is ready: <url>", tested ALLOW elsewhere).
 clear_markers; mark_pass theowner therepo 5
 mk_transcript "$T" "The staging PR is ready to merge: https://github.com/theowner/therepo/pull/5"
 out=$(stop_decision "$T" false)
-[ -z "$out" ] && ok "stop: verified URL + single 'PR' prose → allow (no false excess)" || bad "stop: single-PR-prose false-block" "out=$out"
+echo "$out" | grep -q '"decision":"block"' && ok "stop: unnumbered 'staging PR' word (even w/ verified URL) → block (accepted)" || bad "stop: unnumbered-word not blocked" "out=$out"
 
 # ── readiness-token coverage: each token type, with a PR ref + no marker → BLOCK ───────────
 clear_markers
@@ -338,10 +353,13 @@ mk_transcript "$T" "I opened #7 and #8 this morning. Both PRs are ready to merge
 out=$(stop_decision "$T" false)
 echo "$out" | grep -q '"decision":"block"' && ok "harvest: anaphoric 'Both PRs' (earlier #7 #8) → block" || bad "harvest anaphoric" "out=$out"
 
-# same anaphoric claim with BOTH earlier-named PRs verified → ALLOW
+# same anaphoric claim with BOTH earlier-named PRs verified → still BLOCK: "Both PRs" is an
+# unnumbered PR word, and we can't prove it points only at the two verified numbers (accepted
+# false-block; the model avoids it by writing "#7 and #8 are ready" — see the numbered
+# "PR #7 and PR #9 both verified → allow" case, which stays ALLOW).
 clear_markers; mark_pass o r 7; mark_pass o r 8
 out=$(stop_decision "$T" false)
-[ -z "$out" ] && ok "harvest: anaphoric 'Both PRs', both verified → allow" || bad "harvest anaphoric verified" "out=$out"
+echo "$out" | grep -q '"decision":"block"' && ok "harvest: anaphoric 'Both PRs', both verified → block (accepted false-block)" || bad "harvest anaphoric verified" "out=$out"
 
 # malformed transcript → fail open (ALLOW, no crash)
 out=$(printf '{"transcript_path":"/nope","session_id":"s"}' | node "$GATE" 2>/dev/null); rc=$?

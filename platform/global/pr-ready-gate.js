@@ -120,14 +120,16 @@ function stopHook() {
   if (!hasLiveReadyToken(text)) return;          // no non-negated readiness token → allow
   const refs = harvest(text);
   if (refs.length && !hasFreshPass(refs)) { blockReady(); return; }  // a numbered PR lacks a marker
-  // An UNNUMBERED PR mention has no number for a marker to be matched against. Count
-  // "PR"/"pull request" WORDS vs distinct numbered refs: any EXCESS word is a PR named
-  // without a number ("PR #7 verified. The prod PR is ready") → block to force naming.
-  // Evaluated EVEN WHEN every numbered ref passed — otherwise a verified sibling suppresses
-  // the block: the staging-verified / prod-unverified multi-PR false-PASS (outside-review P1).
-  const prWords = (text.match(PR_WORD) || []).length;
-  const numbered = new Set(refs.map(r => r.pr)).size;
-  if (prWords > numbered) blockReady();
+  // An UNNUMBERED PR mention ("the prod PR", "the staging PR", bare "pull request") has no
+  // number for a marker to be matched against, and we cannot prove it is the SAME PR as a
+  // verified numbered ref without the cross-clause reasoning this redesign forbids. So block
+  // whenever a "PR"/"pull request" word is NOT immediately followed by a number. This fires
+  // EVEN WHEN every numbered ref passed — otherwise a verified sibling spelled as a URL or
+  // bare #N (which carry no "PR" word) silently suppresses the block, the staging-verified /
+  // prod-unverified multi-PR false-PASS (outside-review P1). The cost is a rare, SAFE
+  // false-block on a single verified PR described by prose ("the staging PR is ready: <url>")
+  // — the model avoids it by naming the number.
+  if (UNNUMBERED_PR.test(text)) blockReady();
 }
 
 // Readiness-positive tokens. Bounded alternation, no nested unbounded quantifiers →
@@ -144,9 +146,11 @@ const READY = /\bready\b|\bmergeable\b|\bshipped\b|good to (?:merge|go|ship)|saf
 // run only against the ≤64 chars before the token → bounded, ReDoS-safe.
 const NEG_ADJ = /(?:\bno longer|\bnot|\bnever|\bcannot|\bcan['’]?t|\bwon['’]?t|\bisn['’]?t|\baren['’]?t|\bwasn['’]?t|\bweren['’]?t|\bdon['’]?t|\bdoesn['’]?t|\bdidn['’]?t|\byet to be|\byet to)\s+(?:(?:is|are|am|be|been|being|was|were|to|now|yet|still|quite|fully|entirely|completely|really|actually|truly|necessarily|totally|going|gonna|get|getting|considered|deemed|marked|seem|seems|appear|appears|look|looks)\s+){0,4}$/i;
 
-// PR-context words ("PR", "PRs", "pull request(s)"), global for counting. An excess of these
-// over the distinct numbered refs means a PR was named without a number → force naming.
-const PR_WORD = /\bPRs?\b|\bpull requests?\b/gi;
+// An UNNUMBERED PR mention: a "PR"/"pull request" word NOT immediately followed by a number
+// (so "PR #7"/"PR 7"/"PRs #7" do NOT match, but "the prod PR"/"pull request" do). Independent
+// of how numbered refs are spelled (URL / bare #N / "PR #N"), so a verified numbered sibling
+// cannot suppress it.
+const UNNUMBERED_PR = /\b(?:PRs?|pull requests?)\b(?!\s*#?\d)/i;
 
 function hasLiveReadyToken(text) {
   READY.lastIndex = 0;
