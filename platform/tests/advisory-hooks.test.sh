@@ -204,6 +204,29 @@ mk_transcript "$T" "The staging PR is ready to merge."
 out=$(stop_decision "$T" false)
 echo "$out" | grep -q '"decision":"block"' && ok "stop: PR context, no number → block" || bad "stop: no-number auto-pass" "out=$out"
 
+# outside-review P1: a verified NUMBERED PR must NOT suppress the unnumbered-PR block. Here #7
+# has a fresh marker, but "The prod PR is ready" is a SECOND PR named without a number — the
+# excess PR-word (2 words > 1 numbered ref) → BLOCK (staging-verified/prod-unverified hole).
+clear_markers; mark_pass o r 7
+mk_transcript "$T" "Staging PR #7 is verified and ready. The prod PR is ready to merge."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: verified #7 + unnumbered 'prod PR' → block (P1)" || bad "stop: prod-PR false-pass" "out=$out"
+
+# but a single verified PR described with prose + its own URL must still ALLOW (1 PR-word =
+# 1 numbered ref → no excess; the count fix must not false-block the routine 'here is the PR').
+clear_markers; mark_pass theowner therepo 5
+mk_transcript "$T" "The staging PR is ready to merge: https://github.com/theowner/therepo/pull/5"
+out=$(stop_decision "$T" false)
+[ -z "$out" ] && ok "stop: verified URL + single 'PR' prose → allow (no false excess)" || bad "stop: single-PR-prose false-block" "out=$out"
+
+# ── readiness-token coverage: each token type, with a PR ref + no marker → BLOCK ───────────
+clear_markers
+for msg in "PR #9 is shipped." "PR #9 is mergeable now." "PR #9 — all checks green." "PR #9: 0 unresolved threads." "PR #9 LGTM to merge." "PR #9 is good to go."; do
+  mk_transcript "$T" "$msg"
+  out=$(stop_decision "$T" false)
+  echo "$out" | grep -q '"decision":"block"' && ok "token: '$msg' → block" || bad "token: $msg" "out=$out"
+done
+
 # ── LOCAL adjacent-negation (the entire cleverness budget) ──────────────────────────────
 # A truthful "not ready" report — the sole readiness token is locally negated → ALLOW.
 clear_markers

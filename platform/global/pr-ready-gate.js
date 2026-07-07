@@ -119,13 +119,15 @@ function stopHook() {
 
   if (!hasLiveReadyToken(text)) return;          // no non-negated readiness token → allow
   const refs = harvest(text);
-  if (refs.length) {                             // named PR(s): every one needs a fresh marker
-    if (!hasFreshPass(refs)) blockReady();
-    return;
-  }
-  // A readiness claim carrying PR CONTEXT but no extractable number ("the staging PR is
-  // ready") can't be tied to a marker → block and make the model name + verify the PR.
-  if (PR_CONTEXT.test(text)) blockReady();
+  if (refs.length && !hasFreshPass(refs)) { blockReady(); return; }  // a numbered PR lacks a marker
+  // An UNNUMBERED PR mention has no number for a marker to be matched against. Count
+  // "PR"/"pull request" WORDS vs distinct numbered refs: any EXCESS word is a PR named
+  // without a number ("PR #7 verified. The prod PR is ready") → block to force naming.
+  // Evaluated EVEN WHEN every numbered ref passed — otherwise a verified sibling suppresses
+  // the block: the staging-verified / prod-unverified multi-PR false-PASS (outside-review P1).
+  const prWords = (text.match(PR_WORD) || []).length;
+  const numbered = new Set(refs.map(r => r.pr)).size;
+  if (prWords > numbered) blockReady();
 }
 
 // Readiness-positive tokens. Bounded alternation, no nested unbounded quantifiers →
@@ -142,8 +144,9 @@ const READY = /\bready\b|\bmergeable\b|\bshipped\b|good to (?:merge|go|ship)|saf
 // run only against the ≤64 chars before the token → bounded, ReDoS-safe.
 const NEG_ADJ = /(?:\bno longer|\bnot|\bnever|\bcannot|\bcan['’]?t|\bwon['’]?t|\bisn['’]?t|\baren['’]?t|\bwasn['’]?t|\bweren['’]?t|\bdon['’]?t|\bdoesn['’]?t|\bdidn['’]?t|\byet to be|\byet to)\s+(?:(?:is|are|am|be|been|being|was|were|to|now|yet|still|quite|fully|entirely|completely|really|actually|truly|necessarily|totally|going|gonna|get|getting|considered|deemed|marked|seem|seems|appear|appears|look|looks)\s+){0,4}$/i;
 
-// PR context word — consulted ONLY for a readiness claim that harvested no number.
-const PR_CONTEXT = /\bPRs?\b|\bpull requests?\b/i;
+// PR-context words ("PR", "PRs", "pull request(s)"), global for counting. An excess of these
+// over the distinct numbered refs means a PR was named without a number → force naming.
+const PR_WORD = /\bPRs?\b|\bpull requests?\b/gi;
 
 function hasLiveReadyToken(text) {
   READY.lastIndex = 0;
