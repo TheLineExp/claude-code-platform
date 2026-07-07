@@ -347,6 +347,17 @@ mk_transcript "$T" "The two pull requests #7 and #8 are good to merge."
 out=$(stop_decision "$T" false)
 echo "$out" | grep -q '"decision":"block"' && ok "harvest: spelled-out 'pull requests #7 and #8' → block" || bad "harvest spelled-out" "out=$out"
 
+# hyphen/whitespace spelling of "pull request" (round-3 P2): an unnumbered "pull-request" word
+# must still block; harvest must still pick up a numbered "pull-request #8".
+clear_markers
+mk_transcript "$T" "The staging pull-request is ready to merge."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "harvest: unnumbered 'pull-request' (hyphen) → block" || bad "harvest hyphen unnumbered" "out=$out"
+clear_markers; mark_pass o r 7
+mk_transcript "$T" "pull-request #7 and pull-request #8 are ready to merge."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "harvest: numbered 'pull-request #8' (hyphen), #8 unverified → block" || bad "harvest hyphen numbered" "out=$out"
+
 # anaphoric "Both PRs" — numbers named earlier in the SAME message; neither marked → BLOCK
 clear_markers
 mk_transcript "$T" "I opened #7 and #8 this morning. Both PRs are ready to merge."

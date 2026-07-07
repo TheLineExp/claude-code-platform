@@ -143,8 +143,9 @@ const READY = /\bready\b|\bmergeable\b|\bshipped\b|good to (?:merge|go|ship)|saf
 const NEG_ADJ = /(?:\bno longer|\bnot|\bnever|\bcannot|\bcan['’]?t|\bwon['’]?t|\bisn['’]?t|\baren['’]?t|\bwasn['’]?t|\bweren['’]?t|\bdon['’]?t|\bdoesn['’]?t|\bdidn['’]?t|\byet to be|\byet to)\s+(?:(?:is|are|am|be|been|being|was|were|to|now|yet|still|quite|fully|entirely|completely|really|actually|truly|necessarily|totally|going|gonna|get|getting|considered|deemed|marked|seem|seems|appear|appears|look|looks)\s+){0,4}$/i;
 
 // An UNNUMBERED PR mention: a "PR"/"pull request" word NOT immediately followed by a number
-// ("PR #7"/"PR 7"/"PRs #7" do NOT match; "the prod PR"/"pull request" do).
-const UNNUMBERED_PR = /\b(?:PRs?|pull requests?)\b(?!\s*#?\d)/i;
+// ("PR #7"/"PR 7"/"PRs #7" do NOT match; "the prod PR"/"pull request" do). `pull[\s-]+requests?`
+// tolerates hyphen / multi-space / newline spellings ("pull-request", "pull  requests").
+const UNNUMBERED_PR = /\b(?:PRs?|pull[\s-]+requests?)\b(?!\s*#?\d)/i;
 
 function hasLiveReadyToken(text) {
   READY.lastIndex = 0;
@@ -164,7 +165,7 @@ function hasLiveReadyToken(text) {
 // and anaphoric "Both PRs" resolve for free — each number was itself written `#N` earlier.
 const HARVEST_URL = /github\.com\/([^/\s]+)\/([^/\s]+)\/pull\/(\d+)/gi;
 const HARVEST_HASH = /#(\d+)/g;
-const HARVEST_WORD = /\b(?:PRs?|pull\s+requests?)\s*#?(\d+)/gi;
+const HARVEST_WORD = /\b(?:PRs?|pull[\s-]+requests?)\s*#?(\d+)/gi;
 function harvest(text) {
   const refs = [];
   for (const m of text.matchAll(HARVEST_URL)) refs.push({ repo: `${m[1]}/${m[2]}`, pr: m[3] });
