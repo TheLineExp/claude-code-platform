@@ -186,6 +186,11 @@ function stopHook() {
 
   const key = (r) => `${r.pr}|${r.repo || ''}`;
   const disposition = new Map();     // key → {ref, ready} — LAST write wins (final disposition)
+  // PRs an explicit clause declared NOT ready in ANY sense — including a SCOPED one ("not ready to
+  // merge / to ship / for prod") that deliberately does NOT flip `disposition` (so it can't clobber
+  // a differently-scoped ready-claim, the rd8 false-PASS). Used ONLY to keep such a PR off the
+  // sign-off requirement below, so a truthful "PR #9 is not ready to merge. Done." is not blocked.
+  const notReadyMention = new Set();
   let messageReferent = [];          // last PR named ANYWHERE — antecedent for positive pronouns
   let unassociatedClaim = false;     // a positive claim with no resolvable PR at all
   // Split on sentence enders + newlines into sentences, then each sentence on contrast
@@ -198,6 +203,9 @@ function stopHook() {
       const explicit = harvest(s);
       if (explicit.length) { messageReferent = explicit; sentenceRefs = explicit; }
       const isQuestion = /\?\s*$/.test(s);               // "…but is it not?" is doubt, not a not-ready assertion
+      // Record every explicit not-ready mention (deNegate removed a negated readiness/lifecycle
+      // phrase) for the sign-off exclusion path — independent of whether it flips `disposition`.
+      if (!isQuestion && dn !== s) for (const r of explicit) notReadyMention.add(key(r));
 
       if (readinessRe.test(dn)) {                        // POSITIVE readiness claim (block-biased):
         // resolve the subject liberally toward "ready" (blocking is the safe direction): own refs,
@@ -235,13 +243,18 @@ function stopHook() {
   if (!required.length && !unassociatedClaim) return;   // no readiness claim at all
 
   // A claim whose sentence named no PR: fall back to the message's PR refs — but EXCLUDE any PR
-  // a sentence explicitly declared NOT ready (Codex: "PR #9 is not ready … Done." must not demand
-  // #9's marker). If refs remain, require them (biased to block — a real claim split from its ref
-  // cannot slip). If refs existed but were ALL not-ready, the verb was a sign-off → allow. If no
-  // extractable ref but PR CONTEXT ("the staging PR is ready"), block to force naming; else prose.
+  // a sentence declared NOT ready (Codex: "PR #9 is not ready … Done." must not demand #9's
+  // marker). A PR is not-ready for sign-off purposes if its FINAL disposition is not-ready, OR it
+  // was mentioned as not-ready (incl. a SCOPED "not ready to merge") and was NEVER finally claimed
+  // ready — so a later genuine ready-claim (in `required`) still wins and keeps demanding a marker.
+  // If refs remain, require them (biased to block — a real claim split from its ref cannot slip).
+  // If refs existed but were ALL not-ready, the verb was a sign-off → allow. If no extractable ref
+  // but PR CONTEXT ("the staging PR is ready"), block to force naming; else prose.
   if (unassociatedClaim) {
+    const requiredKeys = new Set(required.map((r) => key(r)));
+    const isNotReady = (r) => notReady.has(key(r)) || (notReadyMention.has(key(r)) && !requiredKeys.has(key(r)));
     const named = harvest(text);
-    const req = named.filter((r) => !notReady.has(key(r)));
+    const req = named.filter((r) => !isNotReady(r));
     if (req.length) required.push(...req);
     else if (named.length) return;                       // every named PR is not-ready → sign-off
     else if (prContextRe.test(text)) { blockReady(); return; }

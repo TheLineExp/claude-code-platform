@@ -456,6 +456,27 @@ mk_transcript "$T" "PR #9 is ready, but that is not."
 out=$(stop_decision "$T" false)
 [ -z "$out" ] && ok "stop: pronoun-subject 'that is not' → allow" || bad "stop: pronoun-subject over-block" "out=$out"
 
+# B4.2 SCOPED-SIGNOFF GUARD (review-fix rd10, Codex :180): a truthful scoped not-ready report
+# ("PR #9 is not ready to merge") followed by a bare sign-off ("Done.") must NOT be blocked — the
+# scoped negation stays OFF the sign-off requirement (notReadyMention) without flipping disposition.
+clear_markers
+mk_transcript "$T" "PR #9 is not ready to merge. Done."
+out=$(stop_decision "$T" false)
+[ -z "$out" ] && ok "stop: scoped 'not ready to merge. Done.' sign-off → allow" || bad "stop: scoped-signoff over-block" "out=$out"
+
+# but a LATER genuine ready-claim for that same PR still wins → block (sign-off exclusion must not
+# override a final ready disposition).
+clear_markers
+mk_transcript "$T" "PR #9 is not ready to merge. PR #9 is ready to merge now. Done."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: scoped not-ready then genuine ready → block" || bad "stop: scoped-signoff swallowed a real ready" "out=$out"
+
+# and the scoped exclusion must NOT reintroduce the rd8 clobber (same-PR different-scope, no sign-off).
+clear_markers
+mk_transcript "$T" "PR #9 is ready to merge, but PR #9 is not ready to ship."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: scoped exclusion preserves rd8 (merge-ready stands) → block" || bad "stop: rd8 regression" "out=$out"
+
 # malformed transcript → fail open (ALLOW, no crash)
 out=$(printf '{"transcript_path":"/nope","session_id":"s"}' | node "$GATE" 2>/dev/null); rc=$?
 { [ -z "$out" ] && [ "$rc" -eq 0 ]; } && ok "stop: missing transcript → fail open" || bad "stop: fail open" "out=$out rc=$rc"
