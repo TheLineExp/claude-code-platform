@@ -120,15 +120,11 @@ function stopHook() {
   if (!hasLiveReadyToken(text)) return;          // no non-negated readiness token → allow
   const refs = harvest(text);
   if (refs.length && !hasFreshPass(refs)) { blockReady(); return; }  // a numbered PR lacks a marker
-  // An UNNUMBERED PR mention ("the prod PR", "the staging PR", bare "pull request") has no
-  // number for a marker to be matched against, and we cannot prove it is the SAME PR as a
-  // verified numbered ref without the cross-clause reasoning this redesign forbids. So block
-  // whenever a "PR"/"pull request" word is NOT immediately followed by a number. This fires
-  // EVEN WHEN every numbered ref passed — otherwise a verified sibling spelled as a URL or
-  // bare #N (which carry no "PR" word) silently suppresses the block, the staging-verified /
-  // prod-unverified multi-PR false-PASS (outside-review P1). The cost is a rare, SAFE
-  // false-block on a single verified PR described by prose ("the staging PR is ready: <url>")
-  // — the model avoids it by naming the number.
+  // An UNNUMBERED PR mention ("the prod PR") can't be tied to a marker and can't be proven
+  // to be a verified numbered ref without clause-reasoning → block. Fires even when every
+  // numbered ref passed, else a URL/#N-spelled verified sibling suppresses it (outside-review
+  // P1: "…pull/7 verified. The prod PR is ready"). Cost: a SAFE false-block on prose like
+  // "the staging PR is ready: <url>" — avoided by naming the number.
   if (UNNUMBERED_PR.test(text)) blockReady();
 }
 
@@ -147,9 +143,7 @@ const READY = /\bready\b|\bmergeable\b|\bshipped\b|good to (?:merge|go|ship)|saf
 const NEG_ADJ = /(?:\bno longer|\bnot|\bnever|\bcannot|\bcan['’]?t|\bwon['’]?t|\bisn['’]?t|\baren['’]?t|\bwasn['’]?t|\bweren['’]?t|\bdon['’]?t|\bdoesn['’]?t|\bdidn['’]?t|\byet to be|\byet to)\s+(?:(?:is|are|am|be|been|being|was|were|to|now|yet|still|quite|fully|entirely|completely|really|actually|truly|necessarily|totally|going|gonna|get|getting|considered|deemed|marked|seem|seems|appear|appears|look|looks)\s+){0,4}$/i;
 
 // An UNNUMBERED PR mention: a "PR"/"pull request" word NOT immediately followed by a number
-// (so "PR #7"/"PR 7"/"PRs #7" do NOT match, but "the prod PR"/"pull request" do). Independent
-// of how numbered refs are spelled (URL / bare #N / "PR #N"), so a verified numbered sibling
-// cannot suppress it.
+// ("PR #7"/"PR 7"/"PRs #7" do NOT match; "the prod PR"/"pull request" do).
 const UNNUMBERED_PR = /\b(?:PRs?|pull requests?)\b(?!\s*#?\d)/i;
 
 function hasLiveReadyToken(text) {
