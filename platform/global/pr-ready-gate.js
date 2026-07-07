@@ -12,11 +12,12 @@
  *     are green AND unresolved threads == 0 does it write a fresh PASS marker. This is
  *     what shipit Step 5b runs immediately before claiming a PR is ready.
  *
- *   STOP-HOOK MODE   (no args; Stop event JSON on stdin)
- *     Reads the final assistant message. If it makes a PR-readiness claim
- *     (ready / done / shipped, co-occurring with a PR reference) but there is NO fresh
- *     PASS marker for that PR, it BLOCKS the stop and tells the model to run verify
- *     mode first. A stale or absent marker can no longer pass silently.
+ *   STOP-HOOK MODE   (no args; Stop event JSON on stdin) — BLOCK-BIASED (chunk B4R)
+ *     Reads the final assistant message. It BLOCKS the stop when the message names a PR
+ *     and carries a non-negated readiness token for which there is no fresh PASS marker.
+ *     The decision is deliberately dumb — it NEVER reasons across clauses (no contrast
+ *     split, no negation scoping, no pronoun/subject co-reference). See stopHook() for
+ *     why that dumbness is the whole point: the coreference bug family cannot exist.
  *
  * Marker: <tmp>/claude-pr-ready/<owner>_<repo>_<pr>.json  {verdict, ts, ...}. Fresh =
  * written within FRESH_MS. FAILS OPEN on every error and never loops (respects
@@ -94,7 +95,15 @@ function verify(argv) {
   }
 }
 
-// ── STOP-HOOK MODE ──────────────────────────────────────────────────────────────
+// ── STOP-HOOK MODE (block-biased — chunk B4R redesign) ────────────────────────────
+// Replaces the old per-PR disposition parser (contrast-split + negation-scoping +
+// pronoun/subject co-reference) — an unbounded false-PASS source across 12 review rounds.
+// This never binds a token to a PR and never reasons across a clause. Three flat checks:
+// a LIVE readiness token (hasLiveReadyToken) + a referenced PR (harvest) + a missing fresh
+// marker (hasFreshPass, unchanged) → BLOCK. No clause-crossing → the coreference/contrast/
+// subject bug family cannot exist. Price: rare, SAFE false-blocks (accepted for an internal
+// dev tool where a missed false-PASS is the only real hazard; a false-block costs one
+// loop-safe turn). See the PR body for the full design rationale.
 function stopHook() {
   let input;
   try { input = JSON.parse(fs.readFileSync(0, 'utf8') || '{}'); } catch { return; }
@@ -108,84 +117,70 @@ function stopHook() {
   const text = lastAssistantText(transcript);
   if (!text) return;
 
-  // A "claim" = a readiness VERB (ready / done / shipped / good-to-merge). Evidence fragments
-  // ("all checks green", "0 unresolved") are NOT claims — they appear verbatim in BLOCKED
-  // reports, so gating on them false-blocked truthful failure reports. "done" is tightened to
-  // a COMPLETION sense: "done <gerund>" / "done for now" / "done with …" are ACTIVITIES, not a
-  // PR-done claim (Codex: a bare "Done investigating for now" in a blocked report).
-  const readinessRe = /(ready to (merge|ship)|good to (merge|go|ship)|safe to (merge|ship)|(is|are|now)\s+ready\b|\bdone\b(?!\s+(?:\w+ing\b|for\s+(?:now|today|the\s+day)|with\b))|✅[^\n]*\b(ready|done|shipped)\b|\bshipped\b)/i;
-  const prContextRe = /(github\.com\/[^\s)]+\/pull\/\d+|\bPR\s*#?\d+|\bpull request\b|staging PR|production PR|prod PR)/i;
-
-  // Neutralize a NEGATED claim ("PR #N is not ready to merge") so a truthful blocked-state
-  // report is not gated; a mixed "#9 not ready but #7 is ready to merge" keeps the positive #7.
-  const deNegate = (s) => s.replace(
-    /\b(not|no longer|never|isn'?t|aren'?t|won'?t|can'?t|cannot|wasn'?t|weren'?t)\s+(?:(?:yet|fully|quite|totally|entirely|completely|necessarily|really|actually)\s+){0,3}((safe|good|ready|able|clear)\s+to\s+\w+|ready\b|done\b|shipped\b|merged\b|good\s+to\s+(go|merge|ship))/gi,
-    ' ');
-
-  // STRONG PR refs only — a `/pull/N` URL (carries its repo) or an explicit `PR #N`. A bare
-  // `#N` is not harvested (it scoops issue refs / "closes #7" tails). A `/owner/repo/pull/N`
-  // URL requires a SAME-repo marker (numbers collide across the 3 fleet repos, Codex P1); a
-  // bare `PR #N` matches on number alone.
-  const harvest = (s) => {
-    const refs = [];
-    for (const mm of s.matchAll(/github\.com\/([^/\s]+)\/([^/\s]+)\/pull\/(\d+)/gi)) refs.push({ repo: `${mm[1]}/${mm[2]}`, pr: mm[3] });
-    for (const mm of s.matchAll(/\bPR\s*#?(\d+)/gi)) refs.push({ repo: null, pr: mm[1] });
-    return refs;
-  };
-
-  // SENTENCE-SCOPE the association: a readiness verb and a PR ref bind into a claim only when
-  // they share the SAME sentence. This stops cross-sentence bleeding — a bare "done" in one
-  // sentence no longer attaches to a PR in another (Codex: "…not ready. Done investigating."),
-  // and a mixed report no longer demands a marker for the PR it says is NOT ready (Codex:
-  // "#9 is not ready … #7 is ready to merge"). Split on sentence enders FOLLOWED BY whitespace
-  // (so a '.' inside a URL never splits) or newlines.
-  const required = [];               // refs a claim explicitly names in its own sentence
-  const notReady = new Set();        // refs a sentence explicitly declares NOT ready
-  const key = (r) => `${r.pr}|${r.repo || ''}`;
-  let unassociatedClaim = false;     // a claim verb whose own sentence names no PR
-  // Split on sentence enders + newlines AND contrast conjunctions ("… not ready, but … ready"),
-  // which flip polarity mid-sentence — so a mixed report requires only the PR it calls ready
-  // (Codex). NOT on bare commas: that would break a ref LIST ("PR #7, #8, #9 are ready").
-  for (const s of text.split(/[.!?;]+\s+|[\n\r]+|\s+(?:but|however|whereas|although|though)\s+/i)) {
-    const dn = deNegate(s);
-    if (readinessRe.test(dn)) {                          // a POSITIVE claim survives here
-      const refs = harvest(s);
-      if (refs.length) required.push(...refs);
-      else unassociatedClaim = true;
-    } else if (dn !== s) {                               // deNegate removed a readiness phrase →
-      for (const r of harvest(s)) notReady.add(key(r));  // this sentence declares its PR NOT ready
-    }
+  if (!hasLiveReadyToken(text)) return;          // no non-negated readiness token → allow
+  const refs = harvest(text);
+  if (refs.length) {                             // named PR(s): every one needs a fresh marker
+    if (!hasFreshPass(refs)) blockReady();
+    return;
   }
+  // A readiness claim carrying PR CONTEXT but no extractable number ("the staging PR is
+  // ready") can't be tied to a marker → block and make the model name + verify the PR.
+  if (PR_CONTEXT.test(text)) blockReady();
+}
 
-  if (!required.length && !unassociatedClaim) return;   // no readiness claim at all
+// Readiness-positive tokens. Bounded alternation, no nested unbounded quantifiers →
+// ReDoS-safe. "all green" and "0/zero/no unresolved" ARE claims — a terse "all green, 0
+// unresolved" is itself a ready-signal — so a truthful not-ready report that also states
+// them blocks (accepted by-design change). "done"/"finished" are deliberately NOT tokens:
+// too overloaded to gate without the clause-reasoning this redesign removes.
+const READY = /\bready\b|\bmergeable\b|\bshipped\b|good to (?:merge|go|ship)|safe to (?:merge|ship)|all\s+(?:checks\s+)?green|(?:\b0|\bzero|\bno)\s+unresolved|\bLGTM\b/gi;
 
-  // A claim whose sentence named no PR: fall back to the message's PR refs — but EXCLUDE any PR
-  // a sentence explicitly declared NOT ready (Codex: "PR #9 is not ready … Done." must not demand
-  // #9's marker). If refs remain, require them (biased to block — a real claim split from its ref
-  // cannot slip). If refs existed but were ALL not-ready, the verb was a sign-off → allow. If no
-  // extractable ref but PR CONTEXT ("the staging PR is ready"), block to force naming; else prose.
-  if (unassociatedClaim) {
-    const named = harvest(text);
-    const req = named.filter((r) => !notReady.has(key(r)));
-    if (req.length) required.push(...req);
-    else if (named.length) return;                       // every named PR is not-ready → sign-off
-    else if (prContextRe.test(text)) { blockReady(); return; }
-    else return;
+// LOCAL adjacent negation — the ONLY cleverness. A token is negated iff a negator abuts
+// it through only a bounded run of copula/adverb FILLER words (is/are/to/quite/…). A noun,
+// comma, or clause boundary breaks it — so "no issues, ready" and the 2nd token in "…is
+// not ready, but the docs are ready" are NOT negated (→ block). Anchored at end-of-prefix,
+// run only against the ≤64 chars before the token → bounded, ReDoS-safe.
+const NEG_ADJ = /(?:\bno longer|\bnot|\bnever|\bcannot|\bcan['’]?t|\bwon['’]?t|\bisn['’]?t|\baren['’]?t|\bwasn['’]?t|\bweren['’]?t|\bdon['’]?t|\bdoesn['’]?t|\bdidn['’]?t|\byet to be|\byet to)\s+(?:(?:is|are|am|be|been|being|was|were|to|now|yet|still|quite|fully|entirely|completely|really|actually|truly|necessarily|totally|going|gonna|get|getting|considered|deemed|marked|seem|seems|appear|appears|look|looks)\s+){0,4}$/i;
+
+// PR context word — consulted ONLY for a readiness claim that harvested no number.
+const PR_CONTEXT = /\bPRs?\b|\bpull requests?\b/i;
+
+function hasLiveReadyToken(text) {
+  READY.lastIndex = 0;
+  let m;
+  while ((m = READY.exec(text)) !== null) {
+    const pre = text.slice(Math.max(0, m.index - 64), m.index);  // bounded window (adjacency)
+    if (!NEG_ADJ.test(pre)) return true;                          // an un-negated readiness token
   }
+  return false;
+}
 
-  if (hasFreshPass(required)) return;   // every claimed PR has its own fresh PASS marker
-  blockReady();
+// Harvest EVERY PR reference (absorbs old chunk B4.3). A `/pull/N` URL carries its repo
+// and requires a SAME-repo marker (numbers collide across the 3 fleet repos, Codex P1); a
+// bare `#N` or `PR N` matches on number alone. Greedy on purpose — an over-harvested ref
+// only adds a SAFE marker requirement, while a MISSED ref that was the real claim would be
+// a false-PASS, the one hazard we refuse. Plural lists, spelled-out "pull requests #7, #8",
+// and anaphoric "Both PRs" resolve for free — each number was itself written `#N` earlier.
+const HARVEST_URL = /github\.com\/([^/\s]+)\/([^/\s]+)\/pull\/(\d+)/gi;
+const HARVEST_HASH = /#(\d+)/g;
+const HARVEST_WORD = /\b(?:PRs?|pull\s+requests?)\s*#?(\d+)/gi;
+function harvest(text) {
+  const refs = [];
+  for (const m of text.matchAll(HARVEST_URL)) refs.push({ repo: `${m[1]}/${m[2]}`, pr: m[3] });
+  for (const m of text.matchAll(HARVEST_HASH)) refs.push({ repo: null, pr: m[1] });
+  for (const m of text.matchAll(HARVEST_WORD)) refs.push({ repo: null, pr: m[1] });
+  return refs;
+}
 
-  function blockReady() {
-    const reason =
-      'PR-READY GATE (shipit Step 5b) — you are about to report a PR ready/done/shipped, ' +
-      'but there is no FRESH verification marker for it. A stale "ready" claim is a defect. ' +
-      'Run: `node ~/.claude/hooks/pr-ready-gate.js verify <owner/repo> <pr#>` — it checks ' +
-      '`gh pr checks` + the unresolved-review-thread count and only passes on "green + 0 ' +
-      'unresolved". If it BLOCKS, fix the failing checks / unresolved threads, push, and ' +
-      're-verify. Only report ready after it prints PR-READY VERIFIED.';
-    process.stdout.write(JSON.stringify({ decision: 'block', reason }));
-  }
+function blockReady() {
+  const reason =
+    'PR-READY GATE (shipit Step 5b) — you are about to report a PR ready/done/shipped, ' +
+    'but there is no FRESH verification marker for it. A stale "ready" claim is a defect. ' +
+    'Run: `node ~/.claude/hooks/pr-ready-gate.js verify <owner/repo> <pr#>` — it checks ' +
+    '`gh pr checks` + the unresolved-review-thread count and only passes on "green + 0 ' +
+    'unresolved". If it BLOCKS, fix the failing checks / unresolved threads, push, and ' +
+    're-verify. Only report ready after it prints PR-READY VERIFIED.';
+  process.stdout.write(JSON.stringify({ decision: 'block', reason }));
 }
 
 // EVERY named PR ref must be satisfied by its OWN fresh PASS marker. A claim naming
@@ -193,8 +188,6 @@ function stopHook() {
 // marker — the staging-verified / prod-unverified multi-PR risk (outside-review P2.1).
 // A repo-qualified ref (from a /pull/ URL) requires a SAME-REPO marker — a cross-repo
 // #N collision must not satisfy it (Codex P1). A bare ref matches on number alone.
-// If the claim carried PR context but no extractable ref ("the staging PR is ready"),
-// prRefs is empty → block and make the model name + verify the PR (its P2 pair).
 function hasFreshPass(prRefs) {
   if (!prRefs.length) return false;
   let markers;

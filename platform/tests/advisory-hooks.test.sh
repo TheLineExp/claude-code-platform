@@ -75,18 +75,30 @@ clear_markers() { rm -rf "$TMPDIR/claude-pr-ready"; }
 
 T="$TMP/t.jsonl"
 
-# claim + PR reference + NO marker → BLOCK
+# ── block-biased core: a live readiness token + a referenced PR w/o a fresh marker → BLOCK
+# claim + PR reference (URL) + NO marker → BLOCK
 clear_markers
 mk_transcript "$T" "The staging PR is ready to merge: https://github.com/o/r/pull/9"
 out=$(stop_decision "$T" false)
 echo "$out" | grep -q '"decision":"block"' && ok "stop: ready+PR, no marker → block" || bad "stop: ready+PR, no marker" "out=$out"
 
-# same claim WITH a fresh pass marker for #9 → ALLOW (no output)
+# same claim WITH a fresh pass marker for #9 → ALLOW (no output) — verified-ready path
 clear_markers; mark_pass o r 9
 out=$(stop_decision "$T" false)
 [ -z "$out" ] && ok "stop: ready+PR, fresh marker → allow" || bad "stop: fresh marker should allow" "out=$out"
 
-# stale marker (ts old) → BLOCK
+# bare "PR #9 is ready" (no URL) + no marker → BLOCK
+clear_markers
+mk_transcript "$T" "PR #9 is ready to merge."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: bare 'PR #9 is ready', no marker → block" || bad "stop: bare PR ready" "out=$out"
+
+# same bare claim WITH a fresh marker → ALLOW (genuine verified ready)
+clear_markers; mark_pass o r 9
+out=$(stop_decision "$T" false)
+[ -z "$out" ] && ok "stop: 'PR #9 is ready' + fresh marker → allow" || bad "stop: bare PR ready + marker" "out=$out"
+
+# stale marker (ts old) → BLOCK  (marker machinery unchanged)
 clear_markers; d="$TMPDIR/claude-pr-ready"; mkdir -p "$d"
 printf '{"owner":"o","repo":"r","pr":9,"verdict":"PASS","ts":1}' > "$d/o_r_9.json"
 out=$(stop_decision "$T" false)
@@ -98,7 +110,7 @@ printf '{"owner":"o","repo":"r","pr":9,"verdict":"FAIL","ts":%s}' "$(node -e 'pr
 out=$(stop_decision "$T" false)
 echo "$out" | grep -q '"decision":"block"' && ok "stop: FAIL marker → block" || bad "stop: FAIL marker" "out=$out"
 
-# MULTI-PR claim, only ONE named PR verified → BLOCK. Every named PR must have its own
+# MULTI-PR claim, only ONE named PR verified → BLOCK. Every referenced PR needs its own
 # fresh marker; a sibling's marker must not carry the unverified one through (outside-
 # review P2.1 — staging #7 verified, prod #9 is the actual unverified claim).
 clear_markers; mark_pass o r 7
@@ -124,13 +136,15 @@ clear_markers; mark_pass theowner therepo 9
 out=$(stop_decision "$T" false)
 [ -z "$out" ] && ok "stop: URL claim, same-repo marker → allow" || bad "stop: same-repo URL should allow" "out=$out"
 
-# bare "Done — PR #9 is open" (readiness = bare 'done') + PR context + no marker → BLOCK
+# BEHAVIOR CHANGE (block-biased): bare "done" is NOT a readiness token — too overloaded to
+# gate without the clause-reasoning this redesign removes. "PR #9 is open" is not a
+# ready-claim, so this ALLOWs (old design blocked on bare 'done').
 clear_markers
 mk_transcript "$T" "Done — PR #9 is open."
 out=$(stop_decision "$T" false)
-echo "$out" | grep -q '"decision":"block"' && ok "stop: bare 'Done' + PR ref → block" || bad "stop: bare done + PR" "out=$out"
+[ -z "$out" ] && ok "stop: 'Done — PR #9 is open' (no ready token) → allow" || bad "stop: bare-done not a token" "out=$out"
 
-# plain 'done' with NO PR context → ALLOW (bare-done must not over-trigger)
+# plain 'done' with NO PR context → ALLOW
 clear_markers
 mk_transcript "$T" "Done reviewing the code; everything reads fine."
 out=$(stop_decision "$T" false)
@@ -153,13 +167,13 @@ clear_markers
 GH_MODE=verify0 PATH="$STUB:$PATH" node "$GATE" verify o/r 9 >/dev/null 2>&1; rc=$?
 { [ "$rc" -eq 0 ] && [ -f "$TMPDIR/claude-pr-ready/o_r_9.json" ]; } && ok "verify: paginated all-resolved → PASS(0)" || bad "verify paginate PASS" "rc=$rc"
 
-# no PR reference (plain 'done') → ALLOW even with no marker
+# no PR reference at all → ALLOW even with a readiness token
 clear_markers
 mk_transcript "$T" "All done — the refactor is complete and tests pass."
 out=$(stop_decision "$T" false)
 [ -z "$out" ] && ok "stop: no PR context → allow" || bad "stop: plain done should allow" "out=$out"
 
-# readiness but no PR ref → ALLOW
+# readiness but no PR ref → ALLOW (rule requires a referenced PR)
 mk_transcript "$T" "The feature is ready and working well."
 out=$(stop_decision "$T" false)
 [ -z "$out" ] && ok "stop: ready w/o PR ref → allow" || bad "stop: ready w/o PR should allow" "out=$out"
@@ -176,85 +190,135 @@ mk_transcript "$T" "PR #9 is ready to merge."
 out=$(stop_decision "$T" false)
 echo "$out" | grep -q '"decision":"block"' && ok "stop: marker for other PR → block" || bad "stop: wrong-PR marker" "out=$out"
 
-# outside-review P1: claim about #9 with a "closes #7" tail + fresh marker for #7 →
-# BLOCK (the bare-#N scoop must NOT let the #7 marker satisfy the #9 claim)
+# outside-review P1: claim about #9 with a "closes #7" tail + fresh marker for #7 → BLOCK.
+# Greedy harvest scoops BOTH #9 and #7, but #9 is unmarked → the #7 marker cannot carry #9.
 clear_markers; mark_pass o r 7
 mk_transcript "$T" "PR #9 is ready to merge (closes #7)."
 out=$(stop_decision "$T" false)
 echo "$out" | grep -q '"decision":"block"' && ok "stop: #9 claim, #7 marker via 'closes #7' → block" || bad "stop: P1 number-scoop" "out=$out"
 
-# outside-review P2: PR context but NO extractable number + a fresh marker for some PR →
-# BLOCK (cannot tie the claim to a marker; make the model name the PR)
+# PR context ("the staging PR") but NO extractable number + a fresh marker for some PR →
+# BLOCK (cannot tie the claim to a marker; make the model name the PR).
 clear_markers; mark_pass o r 9
 mk_transcript "$T" "The staging PR is ready to merge."
 out=$(stop_decision "$T" false)
-echo "$out" | grep -q '"decision":"block"' && ok "stop: PR context, no number → block" || bad "stop: P2 no-number auto-pass" "out=$out"
+echo "$out" | grep -q '"decision":"block"' && ok "stop: PR context, no number → block" || bad "stop: no-number auto-pass" "out=$out"
 
-# ── SENTENCE-SCOPING + negation (Codex rounds on the NL readiness matcher) ──────────────
-# A truthful "not ready" report must NOT block (thread 7).
+# ── LOCAL adjacent-negation (the entire cleverness budget) ──────────────────────────────
+# A truthful "not ready" report — the sole readiness token is locally negated → ALLOW.
 clear_markers
 mk_transcript "$T" "PR #9 is not ready to merge; 7 unresolved threads remain."
 out=$(stop_decision "$T" false)
 [ -z "$out" ] && ok "stop: negated 'not ready' report → allow" || bad "stop: neg not-ready" "out=$out"
 
-# Evidence fragments ("0 unresolved") inside a BLOCKED report are not a claim (threads A + rd4).
-mk_transcript "$T" "PR #9 is not ready: checks are failing, 0 unresolved review threads."
-out=$(stop_decision "$T" false)
-[ -z "$out" ] && ok "stop: blocked report w/ 0-unresolved evidence → allow" || bad "stop: evidence-in-blocked" "out=$out"
-
-# A bare 'done' in a DIFFERENT sentence from the (not-ready) PR must NOT attach to it (thread X).
+# 'done' in a later sentence is not a token; the only readiness word is negated → ALLOW.
 mk_transcript "$T" "PR #9 is not ready: checks are failing. Done investigating for now."
 out=$(stop_decision "$T" false)
-[ -z "$out" ] && ok "stop: cross-sentence 'done investigating' → allow" || bad "stop: cross-sentence done" "out=$out"
+[ -z "$out" ] && ok "stop: not-ready + 'done investigating' → allow" || bad "stop: done investigating" "out=$out"
 
-# MIXED report — #9 not ready, #7 ready+VERIFIED → allow; must NOT require #9's marker (thread Y).
+# bare "Finished PR #17. Done." — neither 'finished' nor 'done' is a readiness token → ALLOW
+# (block-biased BEHAVIOR CHANGE; old design gated on bare 'done').
+clear_markers
+mk_transcript "$T" "Finished PR #17. Done."
+out=$(stop_decision "$T" false)
+[ -z "$out" ] && ok "stop: 'Finished PR #17. Done.' (no ready token) → allow" || bad "stop: finished/done not a token" "out=$out"
+
+# 'no issues, ready' — a stray negator that a NOUN separates from the token is NOT a local
+# negation → the token stays live → BLOCK (guards the char-window false-PASS).
+clear_markers
+mk_transcript "$T" "PR #9: no issues, ready to merge."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: 'no issues, ready' (noun breaks negation) → block" || bad "stop: no-issues false-pass" "out=$out"
+
+# ── BEHAVIOR CHANGES accepted by design (brief acceptance): a non-negated readiness token
+#    in an otherwise truthful not-ready report now BLOCKs (safe false-block). ───────────────
+# "0 unresolved" IS a readiness token → this blocks even though "not ready" is negated.
+clear_markers
+mk_transcript "$T" "PR #9 is not ready: checks are failing, 0 unresolved review threads."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "stop: not-ready report w/ '0 unresolved' token → block (by design)" || bad "stop: 0-unresolved token" "out=$out"
+
+# MIXED report — no per-PR disposition: "#7 is ready" is live and #9 is referenced w/o a
+# marker → BLOCK, even though #9 is declared not-ready and #7 is verified. Accepted safe
+# false-block (old design allowed via sentence-scoping).
 clear_markers; mark_pass o r 7
 mk_transcript "$T" "PR #9 is not ready: checks are failing. PR #7 is ready to merge."
 out=$(stop_decision "$T" false)
-[ -z "$out" ] && ok "stop: mixed report, only the ready PR required (verified) → allow" || bad "stop: mixed requires not-ready PR" "out=$out"
+echo "$out" | grep -q '"decision":"block"' && ok "stop: mixed report (no disposition) → block (safe false-block)" || bad "stop: mixed report" "out=$out"
 
-# Same mixed report but the ready PR is UNVERIFIED → block (on #7 only).
-clear_markers
-mk_transcript "$T" "PR #9 is not ready: checks are failing. PR #7 is ready to merge."
+# intra-sentence "but" mixed polarity → same: no contrast-split, #9 unmarked → BLOCK.
+clear_markers; mark_pass o r 7
+mk_transcript "$T" "PR #9 is not ready, but PR #7 is ready to merge."
 out=$(stop_decision "$T" false)
-echo "$out" | grep -q '"decision":"block"' && ok "stop: mixed report, ready PR unverified → block" || bad "stop: mixed unverified should block" "out=$out"
+echo "$out" | grep -q '"decision":"block"' && ok "stop: intra-sentence 'but' mixed → block (no contrast-split)" || bad "stop: intra-sentence mixed" "out=$out"
 
-# FALSE-PASS GUARD: a readiness verb split from its PR ref across sentences must still block
-# (the unassociated-claim fallback requires every named PR verified — safe direction).
+# FALSE-PASS GUARD: a readiness verb split from its PR ref across sentences still blocks
+# (harvest is over the whole message; #17 is referenced and unmarked).
 clear_markers
 mk_transcript "$T" "Finished PR #17. It is ready to merge."
 out=$(stop_decision "$T" false)
 echo "$out" | grep -q '"decision":"block"' && ok "stop: cross-sentence claim+ref, unverified → block" || bad "stop: split claim false-pass" "out=$out"
 
-# 'done <gerund>' is an ACTIVITY, not a completion claim, even with a same-sentence PR (thread X class).
-clear_markers
-mk_transcript "$T" "Done reviewing PR #9 for now."
-out=$(stop_decision "$T" false)
-[ -z "$out" ] && ok "stop: 'done reviewing PR #9' (activity) → allow" || bad "stop: done-gerund same-sentence" "out=$out"
-
-# thread Q: a bare completion 'Done.' after a NEGATED PR status must not demand that PR's marker.
-clear_markers
-mk_transcript "$T" "PR #9 is not ready: checks are failing. Done."
-out=$(stop_decision "$T" false)
-[ -z "$out" ] && ok "stop: bare 'Done.' after not-ready PR → allow (sign-off)" || bad "stop: bare done sign-off" "out=$out"
-
-# guard: an unassociated claim with a NON-negated PR ref still requires it (no false-pass).
-clear_markers
-mk_transcript "$T" "Finished PR #17. Done."
-out=$(stop_decision "$T" false)
-echo "$out" | grep -q '"decision":"block"' && ok "stop: unassociated claim, live PR unverified → block" || bad "stop: unassociated live PR" "out=$out"
-
-# intra-sentence MIXED polarity ("#9 not ready, but #7 ready") — split on the contrast
-# conjunction so only the ready PR (#7, verified) is required, not the not-ready #9.
-clear_markers; mark_pass o r 7
-mk_transcript "$T" "PR #9 is not ready, but PR #7 is ready to merge."
-out=$(stop_decision "$T" false)
-[ -z "$out" ] && ok "stop: intra-sentence mixed (but), ready PR verified → allow" || bad "stop: intra-sentence mixed" "out=$out"
-# a ref LIST must still require ALL (contrast-split must not break lists → no false-pass)
+# a ref LIST must require ALL (one verified sibling must not carry the unverified one)
 clear_markers; mark_pass o r 7
 mk_transcript "$T" "PR #7 and PR #9 are ready to merge."
 out=$(stop_decision "$T" false)
 echo "$out" | grep -q '"decision":"block"' && ok "stop: ref list, one unverified → block (no false-pass)" || bad "stop: list false-pass" "out=$out"
+
+# ── THE 4 CANONICAL CASES (chunk B4R brief) ─────────────────────────────────────────────
+# (1) THE P1 the old parser false-PASSed: un-negated token first, negated later → BLOCK.
+clear_markers
+mk_transcript "$T" "PR #9 is ready to merge, but the summary for PR #9 is not ready."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "canonical 1: 'ready … but … is not ready' → block (P1 killed)" || bad "canonical 1 P1 false-pass" "out=$out"
+
+# (2) only token is locally negated → ALLOW.
+clear_markers
+mk_transcript "$T" "PR #9 is not ready to merge. Done."
+out=$(stop_decision "$T" false)
+[ -z "$out" ] && ok "canonical 2: 'is not ready to merge. Done.' → allow" || bad "canonical 2 not-ready" "out=$out"
+
+# (3) 'the docs are ready' is un-negated → BLOCK (safe, accepted false-block).
+clear_markers
+mk_transcript "$T" "PR #9 is not ready, but the docs are ready."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "canonical 3: '…not ready, but the docs are ready' → block (safe false-block)" || bad "canonical 3 docs-ready" "out=$out"
+
+# (4) plural claim, neither marked → BLOCK (both required).
+clear_markers
+mk_transcript "$T" "PRs #7 and #8 are ready"
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "canonical 4: 'PRs #7 and #8 are ready' (no markers) → block" || bad "canonical 4 plural" "out=$out"
+
+# ── HARVEST variants (absorbs old chunk B4.3) ───────────────────────────────────────────
+# singular bare #N
+clear_markers
+mk_transcript "$T" "Wrapped it up — #9 is ready to merge."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "harvest: singular bare '#9' → block" || bad "harvest singular" "out=$out"
+
+# plural list "#7, #8 and #9" — all three required; only #7 marked → BLOCK
+clear_markers; mark_pass o r 7
+mk_transcript "$T" "PRs #7, #8 and #9 are ready to merge."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "harvest: plural list, missing markers → block" || bad "harvest plural list" "out=$out"
+
+# spelled-out "pull requests #7 and #8" + a different readiness token ("good to merge")
+clear_markers
+mk_transcript "$T" "The two pull requests #7 and #8 are good to merge."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "harvest: spelled-out 'pull requests #7 and #8' → block" || bad "harvest spelled-out" "out=$out"
+
+# anaphoric "Both PRs" — numbers named earlier in the SAME message; neither marked → BLOCK
+clear_markers
+mk_transcript "$T" "I opened #7 and #8 this morning. Both PRs are ready to merge."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "harvest: anaphoric 'Both PRs' (earlier #7 #8) → block" || bad "harvest anaphoric" "out=$out"
+
+# same anaphoric claim with BOTH earlier-named PRs verified → ALLOW
+clear_markers; mark_pass o r 7; mark_pass o r 8
+out=$(stop_decision "$T" false)
+[ -z "$out" ] && ok "harvest: anaphoric 'Both PRs', both verified → allow" || bad "harvest anaphoric verified" "out=$out"
 
 # malformed transcript → fail open (ALLOW, no crash)
 out=$(printf '{"transcript_path":"/nope","session_id":"s"}' | node "$GATE" 2>/dev/null); rc=$?
