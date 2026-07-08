@@ -161,16 +161,25 @@ function hasLiveReadyToken(text) {
 // and requires a SAME-repo marker (numbers collide across the 3 fleet repos, Codex P1); a
 // bare `#N` or `PR N` matches on number alone. Greedy on purpose — an over-harvested ref
 // only adds a SAFE marker requirement, while a MISSED ref that was the real claim would be
-// a false-PASS, the one hazard we refuse. Plural lists, spelled-out "pull requests #7, #8",
-// and anaphoric "Both PRs" resolve for free — each number was itself written `#N` earlier.
+// a false-PASS, the one hazard we refuse. Plural/spelled-out/anaphoric all resolve here.
 const HARVEST_URL = /github\.com\/([^/\s]+)\/([^/\s]+)\/pull\/(\d+)/gi;
 const HARVEST_HASH = /#(\d+)/g;
 const HARVEST_WORD = /\b(?:PRs?|pull[\s-]+requests?)\s*#?(\d+)/gi;
+// List elision (Codex P1 + outside-review): an enumerated PR list — anchored by a `#N` or a
+// PR-word ("PRs 7", mirroring HARVEST_WORD), continued over list connectors (punctuation
+// `, & / +`, words `and`/`or`/`plus`, Oxford `, and`) — makes EVERY listed number a ref, so an
+// elided later item (no `#`) is gated too ("#7 and 8", "#7, 8, and 9", "#7/8", "PRs 7 and 8").
+// Each step consumes a connector + digits → no clause-crossing, ReDoS-safe. A bare space is NOT
+// a connector (else "#7 3 commits" over-harvests), so space-only lists / spelled-out numbers
+// are accepted misses (non-idiomatic). Greedy over-capture only ADDS a marker req (safe).
+const HARVEST_LIST = /(?:#|\b(?:PRs?|pull[\s-]+requests?)\s*#?)\d+(?:\s*(?:,\s*(?:and|or)|and|or|plus|[,&\/+])\s*#?\d+)+/gi;
 function harvest(text) {
   const refs = [];
   for (const m of text.matchAll(HARVEST_URL)) refs.push({ repo: `${m[1]}/${m[2]}`, pr: m[3] });
   for (const m of text.matchAll(HARVEST_HASH)) refs.push({ repo: null, pr: m[1] });
   for (const m of text.matchAll(HARVEST_WORD)) refs.push({ repo: null, pr: m[1] });
+  for (const run of text.matchAll(HARVEST_LIST))
+    for (const n of run[0].match(/\d+/g)) refs.push({ repo: null, pr: n });  // trailing elided items
   return refs;
 }
 

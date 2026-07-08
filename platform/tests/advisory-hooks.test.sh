@@ -341,6 +341,50 @@ mk_transcript "$T" "PRs #7, #8 and #9 are ready to merge."
 out=$(stop_decision "$T" false)
 echo "$out" | grep -q '"decision":"block"' && ok "harvest: plural list, missing markers → block" || bad "harvest plural list" "out=$out"
 
+# LIST-ELISION (Codex P1): later items with the # ELIDED must still be harvested, so #8 is
+# gated even though only #7 is spelled with a #. #7 verified, #8 NOT → BLOCK. Three connectors.
+clear_markers; mark_pass o r 7
+mk_transcript "$T" "PRs #7 and 8 are ready to merge."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "harvest: elided '#7 and 8', #8 unverified → block" || bad "harvest elision and" "out=$out"
+clear_markers; mark_pass o r 7
+mk_transcript "$T" "PRs #7, 8 and 9 are ready to merge."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "harvest: elided '#7, 8 and 9', #8/#9 unverified → block" || bad "harvest elision comma-and" "out=$out"
+clear_markers; mark_pass o r 7
+mk_transcript "$T" "PRs #7 & 8 are ready to merge."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "harvest: elided '#7 & 8', #8 unverified → block" || bad "harvest elision amp" "out=$out"
+
+# same elided list with EVERY listed PR verified → ALLOW (harvest correct, no over-block)
+clear_markers; mark_pass o r 7; mark_pass o r 8; mark_pass o r 9
+mk_transcript "$T" "PRs #7, 8 and 9 are ready to merge."
+out=$(stop_decision "$T" false)
+[ -z "$out" ] && ok "harvest: elided list, ALL verified → allow" || bad "harvest elision all-verified" "out=$out"
+
+# extra connectors (code-review): slash / plus shorthand, #8 unverified → BLOCK
+clear_markers; mark_pass o r 7
+mk_transcript "$T" "PRs #7/8 are ready to merge."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "harvest: '#7/8' slash, #8 unverified → block" || bad "harvest slash" "out=$out"
+clear_markers; mark_pass o r 7
+mk_transcript "$T" "PRs #7+8 are ready to merge."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "harvest: '#7+8' plus, #8 unverified → block" || bad "harvest plus" "out=$out"
+
+# Oxford ", and" (outside-review P1b): #7,#8 verified, #9 NOT → BLOCK (run must not stop at #8)
+clear_markers; mark_pass o r 7; mark_pass o r 8
+mk_transcript "$T" "PRs #7, 8, and 9 are ready to merge."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "harvest: Oxford '#7, 8, and 9', #9 unverified → block" || bad "harvest oxford" "out=$out"
+
+# no-# anchor list (outside-review P1a): bare-word "PRs 7 and 8" — mirrors the bare-word
+# singular HARVEST_WORD already gates; #7 verified, #8 NOT → BLOCK.
+clear_markers; mark_pass o r 7
+mk_transcript "$T" "PRs 7 and 8 are ready to merge."
+out=$(stop_decision "$T" false)
+echo "$out" | grep -q '"decision":"block"' && ok "harvest: no-# word-anchor 'PRs 7 and 8', #8 unverified → block" || bad "harvest word-anchor list" "out=$out"
+
 # spelled-out "pull requests #7 and #8" + a different readiness token ("good to merge")
 clear_markers
 mk_transcript "$T" "The two pull requests #7 and #8 are good to merge."
