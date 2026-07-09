@@ -139,6 +139,31 @@ mk_transcript "$T" "PR #9 is ready to merge."
 out=$(stop_decision_cwd "$T" false "$TMP/nogit")
 echo "$out" | grep -q '"decision":"block"' && ok "B6 stop: bare '#9 ready', cwd not a git repo → block" || bad "B6 undeterminable cwd block" "out=$out"
 
+# CO-LOCATED URL + bare `#N` (the canonical shipit report) must NOT false-block when the cwd
+# repo differs from the URL's repo. "PR #9 ... /pull/9" harvests BOTH {theowner/therepo,9} and
+# a bare {null,9}; the bare copy is covered by the qualified sibling → only the URL marker is
+# required. cwd = a DIFFERENT repo (platform) → still ALLOW (regression guard for the /pm M flow).
+clear_markers; mark_pass theowner therepo 9
+mk_transcript "$T" "PR #9 is ready to merge: https://github.com/theowner/therepo/pull/9"
+out=$(stop_decision_cwd "$T" false "$TMP/repo_other")
+[ -z "$out" ] && ok "B6 stop: URL + co-located bare '#9', same-repo marker, foreign cwd → allow" || bad "B6 URL+bare covered allow" "out=$out"
+
+# same co-located shape but NO marker → still BLOCK (the qualified URL ref is unverified).
+clear_markers
+mk_transcript "$T" "PR #9 is ready to merge: https://github.com/theowner/therepo/pull/9"
+out=$(stop_decision_cwd "$T" false "$TMP/repo_other")
+echo "$out" | grep -q '"decision":"block"' && ok "B6 stop: URL + co-located bare '#9', NO marker → block" || bad "B6 URL+bare unverified block" "out=$out"
+
+# a malformed repo-less marker must not manufacture phantom cross-repo ambiguity: a valid
+# same-repo #9 marker alongside an owner/repo-less #9 marker + bare "#9 ready" in that repo's
+# cwd → ALLOW (the null-repo marker is ignored, not counted as a 2nd distinct repo).
+clear_markers; mark_pass theowner therepo 9
+md="$TMPDIR/claude-pr-ready"; mkdir -p "$md"
+printf '{"pr":9,"verdict":"PASS","ts":%s}' "$(node -e 'process.stdout.write(String(Date.now()))')" > "$md/_null_9.json"
+mk_transcript "$T" "PR #9 is ready to merge."
+out=$(stop_decision_cwd "$T" false "$TMP/repo_same")
+[ -z "$out" ] && ok "B6 stop: bare '#9' + valid same-repo marker despite a repo-less marker → allow" || bad "B6 null-repo phantom ambiguity" "out=$out"
+
 # stale marker (ts old) → BLOCK  (marker machinery unchanged)
 clear_markers; d="$TMPDIR/claude-pr-ready"; mkdir -p "$d"
 printf '{"owner":"o","repo":"r","pr":9,"verdict":"PASS","ts":1}' > "$d/o_r_9.json"

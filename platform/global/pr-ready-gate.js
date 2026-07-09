@@ -121,10 +121,16 @@ function stopHook() {
   if (!hasLiveReadyToken(text)) return;          // no non-negated readiness token → allow
   const refs = harvest(text);
   if (refs.length) {
-    // Resolve a BARE `#N` against the repo the hook runs in — bare numbers collide across the
-    // fleet repos + platform. currentRepoSlug() is null when the cwd isn't a resolvable git
+    // Scope a genuinely-bare `#N` to the repo the hook runs in (bare numbers collide across the
+    // fleet repos + platform). A bare `#N` that also appears as a repo-qualified ref (the
+    // "[owner/repo#N](…/pull/N)" report shape) is covered by that sibling, and a pure-URL report
+    // needs no scoping — so resolve the current repo (a git-remote read) ONLY when a truly
+    // uncovered bare ref remains. currentRepoSlug() is null when the cwd isn't a resolvable git
     // repo → hasFreshPass treats null (and cross-repo ambiguity) as BLOCK (block-biased, B6).
-    const currentRepo = currentRepoSlug(input.cwd || process.cwd());
+    const qualifiedNums = new Set(refs.filter(r => r.repo != null).map(r => r.pr));
+    const currentRepo = refs.some(r => r.repo == null && !qualifiedNums.has(r.pr))
+      ? currentRepoSlug(input.cwd || process.cwd())
+      : null;
     if (!hasFreshPass(refs, currentRepo)) { blockReady(); return; }  // a numbered PR lacks a same-repo marker
   }
   // An UNNUMBERED PR mention ("the prod PR") can't be tied to a marker and can't be proven
@@ -229,13 +235,22 @@ function hasFreshPass(prRefs, currentRepo) {
     if (now - (mk.ts || 0) > FRESH_MS) continue;
     fresh.push({ repo: (mk.owner && mk.repo) ? `${mk.owner}/${mk.repo}` : null, pr: String(mk.pr) });
   }
+  // A bare `#N` that co-occurs with a repo-qualified ref for the SAME number is that same PR
+  // spelled twice — the canonical report "[owner/repo#9](…/pull/9)" harvests BOTH {o/r,9} and
+  // {null,9}. The qualified sibling already enforces the same-repo marker, so the bare copy is
+  // redundant; gating it against the cwd too would false-BLOCK a genuinely-verified URL claim
+  // whenever the hook runs from a different repo's cwd (e.g. the /pm M window reporting a fleet
+  // PR by URL). Skip such covered bare refs — this keeps the URL happy path un-regressed (B6).
+  const qualifiedNums = new Set(prRefs.filter(r => r.repo != null).map(r => r.pr));
   for (const ref of prRefs) {
     if (ref.repo != null) {
       // Repo-qualified (from a /pull/ URL): a SAME-REPO fresh marker is required (Codex P1).
       if (!fresh.some(m => m.pr === ref.pr && m.repo === ref.repo)) return false;
-    } else {
-      // Bare `#N`: scope it to the current repo; block on ambiguity / undeterminable cwd.
-      const reposForPr = new Set(fresh.filter(m => m.pr === ref.pr).map(m => m.repo));
+    } else if (!qualifiedNums.has(ref.pr)) {
+      // Genuinely bare `#N` (no qualified sibling): scope it to the current repo; block on
+      // ambiguity or an undeterminable cwd. Only real (non-null) marker repos count — a
+      // malformed repo-less marker can neither satisfy a bare ref nor manufacture ambiguity.
+      const reposForPr = new Set(fresh.filter(m => m.pr === ref.pr && m.repo != null).map(m => m.repo));
       if (reposForPr.size >= 2) return false;         // same #N fresh under 2+ repos → ambiguous → block
       if (currentRepo == null) return false;          // cwd not a resolvable repo → cannot scope → block
       if (!reposForPr.has(currentRepo)) return false; // no fresh marker for THIS repo's #N → block
