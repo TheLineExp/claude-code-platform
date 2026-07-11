@@ -34,7 +34,13 @@ const FRESH_MS = 20 * 60 * 1000; // a marker older than 20 min is stale — re-v
 const MARKER_DIR = path.join(os.tmpdir(), 'claude-pr-ready');
 
 function markerPath(owner, repo, pr) {
-  return path.join(MARKER_DIR, `${sanitize(owner)}_${sanitize(repo)}_${sanitize(String(pr))}.json`);
+  // Canonical case-insensitive identity: lower-case owner/repo so the marker's write (verify),
+  // delete (invalidate — check-fix-landed calls it with the PR URL's casing) and read
+  // (hasFreshPass via normRepo) all resolve to ONE filename regardless of the case each caller
+  // supplied. Otherwise a case-divergent invalidate would miss the marker on a case-sensitive
+  // filesystem, leaving a stale PASS and defeating the head-staleness guard. GitHub slugs are
+  // case-insensitive, so collapsing case-variants to one marker is correct (Codex P2, B6R).
+  return path.join(MARKER_DIR, `${sanitize(String(owner).toLowerCase())}_${sanitize(String(repo).toLowerCase())}_${sanitize(String(pr))}.json`);
 }
 function sanitize(s) { return String(s).replace(/[^A-Za-z0-9_.-]/g, '_').slice(0, 80); }
 
@@ -100,7 +106,8 @@ function verify(argv) {
 // pronoun/subject co-reference) — an unbounded false-PASS source across 12 review rounds.
 // This never binds a token to a PR and never reasons across a clause. Three flat checks:
 // a LIVE readiness token (hasLiveReadyToken) + a referenced PR (harvest) + a missing fresh
-// marker (hasFreshPass, unchanged) → BLOCK. No clause-crossing → the coreference/contrast/
+// marker (hasFreshPass — bare `#N` scoped to the current repo, chunk B6) → BLOCK. No
+// clause-crossing → the coreference/contrast/
 // subject bug family cannot exist. Price: rare, SAFE false-blocks (accepted for an internal
 // dev tool where a missed false-PASS is the only real hazard; a false-block costs one
 // loop-safe turn). See the PR body for the full design rationale.
@@ -119,7 +126,19 @@ function stopHook() {
 
   if (!hasLiveReadyToken(text)) return;          // no non-negated readiness token → allow
   const refs = harvest(text);
-  if (refs.length && !hasFreshPass(refs)) { blockReady(); return; }  // a numbered PR lacks a marker
+  if (refs.length) {
+    // Scope a genuinely-bare `#N` to the repo the hook runs in (bare numbers collide across the
+    // fleet repos + platform). A bare `#N` that also appears as a repo-qualified ref (the
+    // "[owner/repo#N](…/pull/N)" report shape) is covered by that sibling, and a pure-URL report
+    // needs no scoping — so resolve the current repo (a git-remote read) ONLY when a truly
+    // uncovered bare ref remains. currentRepoSlug() is null when the cwd isn't a resolvable git
+    // repo → hasFreshPass treats null (and cross-repo ambiguity) as BLOCK (block-biased, B6).
+    const qualifiedNums = new Set(refs.filter(r => r.repo != null).map(r => r.pr));
+    const currentRepo = refs.some(r => r.repo == null && !qualifiedNums.has(r.pr))
+      ? currentRepoSlug(input.cwd || process.cwd())
+      : null;
+    if (!hasFreshPass(refs, currentRepo)) { blockReady(); return; }  // a numbered PR lacks a same-repo marker
+  }
   // An UNNUMBERED PR mention ("the prod PR") can't be tied to a marker and can't be proven
   // to be a verified numbered ref without clause-reasoning → block. Fires even when every
   // numbered ref passed, else a URL/#N-spelled verified sibling suppresses it (outside-review
@@ -159,7 +178,8 @@ function hasLiveReadyToken(text) {
 
 // Harvest EVERY PR reference (absorbs old chunk B4.3). A `/pull/N` URL carries its repo
 // and requires a SAME-repo marker (numbers collide across the 3 fleet repos, Codex P1); a
-// bare `#N` or `PR N` matches on number alone. Greedy on purpose — an over-harvested ref
+// bare `#N` or `PR N` carries no repo (repo:null) and is scoped to the current repo at
+// match time in hasFreshPass (chunk B6). Greedy on purpose — an over-harvested ref
 // only adds a SAFE marker requirement, while a MISSED ref that was the real claim would be
 // a false-PASS, the one hazard we refuse. Plural/spelled-out/anaphoric all resolve here.
 const HARVEST_URL = /github\.com\/([^/\s]+)\/([^/\s]+)\/pull\/(\d+)/gi;
@@ -198,8 +218,16 @@ function blockReady() {
 // several PRs ("#7 and #9 are both ready") must not ride through on one sibling's
 // marker — the staging-verified / prod-unverified multi-PR risk (outside-review P2.1).
 // A repo-qualified ref (from a /pull/ URL) requires a SAME-REPO marker — a cross-repo
-// #N collision must not satisfy it (Codex P1). A bare ref matches on number alone.
-function hasFreshPass(prRefs) {
+// #N collision must not satisfy it (Codex P1).
+//
+// A BARE `#N` ref (no repo in the text) is resolved against `currentRepo` — the repo the
+// Stop hook is running in (chunk B6). Bare PR numbers collide across the 3 fleet repos +
+// platform, so a bare "#9 is ready" must be satisfied ONLY by a fresh marker whose repo IS
+// the current repo. Block-biased: if `currentRepo` is null (cwd not a resolvable git repo)
+// OR the same bare `#N` has fresh markers under 2+ distinct repos (genuine ambiguity), it
+// BLOCKS — a bare number we can't unambiguously scope must never ride an unrelated repo's
+// marker (the pre-B6 false-PASS this closes).
+function hasFreshPass(prRefs, currentRepo) {
   if (!prRefs.length) return false;
   let markers;
   try { markers = fs.readdirSync(MARKER_DIR); } catch { return false; }
@@ -211,14 +239,53 @@ function hasFreshPass(prRefs) {
     try { mk = JSON.parse(fs.readFileSync(path.join(MARKER_DIR, f), 'utf8')); } catch { continue; }
     if (mk.verdict !== 'PASS') continue;
     if (now - (mk.ts || 0) > FRESH_MS) continue;
-    fresh.push({ repo: (mk.owner && mk.repo) ? `${mk.owner}/${mk.repo}` : null, pr: String(mk.pr) });
+    fresh.push({ repo: (mk.owner && mk.repo) ? normRepo(`${mk.owner}/${mk.repo}`) : null, pr: String(mk.pr) });
   }
+  // A bare `#N` that co-occurs with a repo-qualified ref for the SAME number is that same PR
+  // spelled twice — the canonical report "[owner/repo#9](…/pull/9)" harvests BOTH {o/r,9} and
+  // {null,9}. The qualified sibling already enforces the same-repo marker, so the bare copy is
+  // redundant; gating it against the cwd too would false-BLOCK a genuinely-verified URL claim
+  // whenever the hook runs from a different repo's cwd (e.g. the /pm M window reporting a fleet
+  // PR by URL). Skip such covered bare refs — this keeps the URL happy path un-regressed (B6).
+  const qualifiedNums = new Set(prRefs.filter(r => r.repo != null).map(r => r.pr));
   for (const ref of prRefs) {
-    const ok = fresh.some(m => m.pr === ref.pr && (ref.repo == null || m.repo === ref.repo));
-    if (!ok) return false;   // any un-verified (or wrong-repo) named PR blocks
+    if (ref.repo != null) {
+      // Repo-qualified (from a /pull/ URL): a SAME-REPO fresh marker is required (Codex P1).
+      // Compare case-insensitively — GitHub slugs are case-insensitive (Codex P2, B6R).
+      if (!fresh.some(m => m.pr === ref.pr && m.repo === normRepo(ref.repo))) return false;
+    } else if (!qualifiedNums.has(ref.pr)) {
+      // Genuinely bare `#N` (no qualified sibling): scope it to the current repo; block on
+      // ambiguity or an undeterminable cwd. Only real (non-null) marker repos count — a
+      // malformed repo-less marker can neither satisfy a bare ref nor manufacture ambiguity.
+      const reposForPr = new Set(fresh.filter(m => m.pr === ref.pr && m.repo != null).map(m => m.repo));
+      if (reposForPr.size >= 2) return false;         // same #N fresh under 2+ repos → ambiguous → block
+      if (currentRepo == null) return false;          // cwd not a resolvable repo → cannot scope → block
+      if (!reposForPr.has(currentRepo)) return false; // no fresh marker for THIS repo's #N → block
+    }
   }
   return true;
 }
+
+// Resolve the repo the Stop hook is running in (from its cwd) so a bare `#N` readiness claim
+// can be tied to a specific repo's marker. Returns `owner/repo`, or null on any failure (cwd
+// not a git repo / no `origin` / unparseable URL) — null is BLOCK-biased in hasFreshPass.
+function currentRepoSlug(cwd) {
+  try { return normRepo(parseRepoSlug(run('git', ['-C', String(cwd || '.'), 'remote', 'get-url', 'origin']))); }
+  catch { return null; }
+}
+// Parse `owner/repo` from any remote-URL form — https, scp-like `git@host:owner/repo`,
+// `ssh://…/owner/repo` — tolerating a trailing slash and a `.git` suffix. Bounded character
+// classes, no nested/ambiguous quantifiers → ReDoS-safe.
+function parseRepoSlug(url) {
+  const s = String(url || '').trim().replace(/\/+$/, '').replace(/\.git$/i, '');
+  const m = s.match(/[:/]([^/:\s]+)\/([^/:\s]+)$/);
+  return m ? `${m[1]}/${m[2]}` : null;
+}
+// GitHub repo slugs are case-insensitive, but a marker's `owner/repo` (written from shipit's
+// `verify <owner/repo>` argv) and the cwd's `origin` URL can differ in case. Normalize both
+// sides to lower case before matching so a legitimately-verified same-repo ref isn't rejected
+// on casing alone (Codex P2). Null-safe: preserves the block-biased null sentinel.
+function normRepo(slug) { return slug == null ? null : String(slug).toLowerCase(); }
 
 // ── INVALIDATE MODE ─────────────────────────────────────────────────────────────
 // `node pr-ready-gate.js invalidate <owner/repo> <pr#>` — delete a PR's PASS marker.

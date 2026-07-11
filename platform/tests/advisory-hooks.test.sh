@@ -72,6 +72,14 @@ mark_pass() { # $1=owner $2=repo $3=pr  — write a FRESH pass marker
     "$1" "$2" "$3" "$(node -e 'process.stdout.write(String(Date.now()))')" > "$d/${1}_${2}_${3}.json"
 }
 clear_markers() { rm -rf "$TMPDIR/claude-pr-ready"; }
+# chunk B6: a bare `#N` is scoped to the repo the Stop hook runs in. These helpers let a test
+# pin that cwd to a known repo (mk_gitrepo) and feed it to the hook (stop_decision_cwd).
+mk_gitrepo() { # $1=dir  $2=owner/repo  — throwaway repo whose `origin` is github.com/$2
+  mkdir -p "$1"; git -C "$1" init -q; git -C "$1" remote add origin "https://github.com/$2.git" 2>/dev/null
+}
+stop_decision_cwd() { # $1=transcript $2=stop_hook_active $3=cwd  → echo stdout
+  printf '{"transcript_path":"%s","session_id":"s","stop_hook_active":%s,"cwd":"%s"}' "$1" "$2" "$3" | node "$GATE" 2>/dev/null
+}
 
 T="$TMP/t.jsonl"
 
@@ -93,10 +101,77 @@ mk_transcript "$T" "PR #9 is ready to merge."
 out=$(stop_decision "$T" false)
 echo "$out" | grep -q '"decision":"block"' && ok "stop: bare 'PR #9 is ready', no marker → block" || bad "stop: bare PR ready" "out=$out"
 
-# same bare claim WITH a fresh marker → ALLOW (genuine verified ready)
-clear_markers; mark_pass o r 9
-out=$(stop_decision "$T" false)
-[ -z "$out" ] && ok "stop: 'PR #9 is ready' + fresh marker → allow" || bad "stop: bare PR ready + marker" "out=$out"
+# ── chunk B6: a BARE `#N` is scoped to the CURRENT repo (Stop-hook cwd) ─────────────────
+# Before B6 a bare `#N` matched ANY repo's fresh `#N` marker → cross-repo false-PASS. Now a
+# bare claim is satisfied ONLY by a marker for the repo the hook runs in; cross-repo ambiguity
+# or an undeterminable cwd BLOCK (block-biased). These replace the old repo-blind allow test.
+
+# same-repo ALLOW: fresh marker for theowner/therepo #9 + cwd IN theowner/therepo + bare "#9 ready" → ALLOW
+clear_markers; mark_pass theowner therepo 9
+mk_gitrepo "$TMP/repo_same" theowner/therepo
+mk_transcript "$T" "PR #9 is ready to merge."
+out=$(stop_decision_cwd "$T" false "$TMP/repo_same")
+[ -z "$out" ] && ok "B6 stop: bare '#9 ready' + same-repo marker (cwd) → allow" || bad "B6 same-repo allow" "out=$out"
+
+# REPRO of the pre-B6 false-PASS → must now BLOCK: a fresh marker exists ONLY for
+# reservations#9, but the hook runs in a DIFFERENT repo (platform) and the bare "#9 ready"
+# was meant for it. Pre-B6 this rode the reservations#9 marker and PASSED (the empirical hole).
+clear_markers; mark_pass TheLineExp fleetmanager-reservations 9
+mk_gitrepo "$TMP/repo_other" TheLineExp/claude-code-platform
+mk_transcript "$T" "PR #9 is ready to merge."
+out=$(stop_decision_cwd "$T" false "$TMP/repo_other")
+echo "$out" | grep -q '"decision":"block"' && ok "B6 stop: bare '#9 ready', marker for a DIFFERENT repo → block (repro)" || bad "B6 cross-repo false-PASS repro" "out=$out"
+
+# CROSS-REPO AMBIGUITY → BLOCK: the same bare `#9` has fresh markers under 2 distinct repos.
+clear_markers; mark_pass owner1 repoA 9; mark_pass owner2 repoB 9
+mk_transcript "$T" "PR #9 is ready to merge."
+out=$(stop_decision_cwd "$T" false "$TMP/repo_same")   # cwd=theowner/therepo (neither #9 repo) → block
+echo "$out" | grep -q '"decision":"block"' && ok "B6 stop: bare '#9' fresh under 2 repos → block (ambiguous)" || bad "B6 ambiguity block" "out=$out"
+mk_gitrepo "$TMP/repo_amb" owner1/repoA
+out=$(stop_decision_cwd "$T" false "$TMP/repo_amb")     # cwd MATCHES one of the two → STILL block
+echo "$out" | grep -q '"decision":"block"' && ok "B6 stop: bare '#9' under 2 repos, cwd matches one → still block" || bad "B6 ambiguity block (cwd matches one)" "out=$out"
+
+# UNDETERMINABLE cwd → BLOCK (behavior-change note): a fresh marker exists, but the cwd is not
+# a git repo, so the bare `#9` can't be scoped to a repo → block (safe).
+clear_markers; mark_pass theowner therepo 9
+mkdir -p "$TMP/nogit"
+mk_transcript "$T" "PR #9 is ready to merge."
+out=$(stop_decision_cwd "$T" false "$TMP/nogit")
+echo "$out" | grep -q '"decision":"block"' && ok "B6 stop: bare '#9 ready', cwd not a git repo → block" || bad "B6 undeterminable cwd block" "out=$out"
+
+# CO-LOCATED URL + bare `#N` (the canonical shipit report) must NOT false-block when the cwd
+# repo differs from the URL's repo. "PR #9 ... /pull/9" harvests BOTH {theowner/therepo,9} and
+# a bare {null,9}; the bare copy is covered by the qualified sibling → only the URL marker is
+# required. cwd = a DIFFERENT repo (platform) → still ALLOW (regression guard for the /pm M flow).
+clear_markers; mark_pass theowner therepo 9
+mk_transcript "$T" "PR #9 is ready to merge: https://github.com/theowner/therepo/pull/9"
+out=$(stop_decision_cwd "$T" false "$TMP/repo_other")
+[ -z "$out" ] && ok "B6 stop: URL + co-located bare '#9', same-repo marker, foreign cwd → allow" || bad "B6 URL+bare covered allow" "out=$out"
+
+# same co-located shape but NO marker → still BLOCK (the qualified URL ref is unverified).
+clear_markers
+mk_transcript "$T" "PR #9 is ready to merge: https://github.com/theowner/therepo/pull/9"
+out=$(stop_decision_cwd "$T" false "$TMP/repo_other")
+echo "$out" | grep -q '"decision":"block"' && ok "B6 stop: URL + co-located bare '#9', NO marker → block" || bad "B6 URL+bare unverified block" "out=$out"
+
+# a malformed repo-less marker must not manufacture phantom cross-repo ambiguity: a valid
+# same-repo #9 marker alongside an owner/repo-less #9 marker + bare "#9 ready" in that repo's
+# cwd → ALLOW (the null-repo marker is ignored, not counted as a 2nd distinct repo).
+clear_markers; mark_pass theowner therepo 9
+md="$TMPDIR/claude-pr-ready"; mkdir -p "$md"
+printf '{"pr":9,"verdict":"PASS","ts":%s}' "$(node -e 'process.stdout.write(String(Date.now()))')" > "$md/_null_9.json"
+mk_transcript "$T" "PR #9 is ready to merge."
+out=$(stop_decision_cwd "$T" false "$TMP/repo_same")
+[ -z "$out" ] && ok "B6 stop: bare '#9' + valid same-repo marker despite a repo-less marker → allow" || bad "B6 null-repo phantom ambiguity" "out=$out"
+
+# CASE-INSENSITIVE slugs (Codex P2): a marker written by `verify TheLineExp/Repo 9` must satisfy
+# a bare "#9 ready" from a cwd whose origin is lower-cased (github.com/thelineexp/repo) — GitHub
+# treats them as the same repo. Pre-fix this false-BLOCKED on the exact-string Set.has check.
+clear_markers; mark_pass TheLineExp Repo 9
+mk_gitrepo "$TMP/repo_case" thelineexp/repo
+mk_transcript "$T" "PR #9 is ready to merge."
+out=$(stop_decision_cwd "$T" false "$TMP/repo_case")
+[ -z "$out" ] && ok "B6 stop: bare '#9' + case-differing same-repo marker → allow (case-insensitive)" || bad "B6 case-insensitive allow" "out=$out"
 
 # stale marker (ts old) → BLOCK  (marker machinery unchanged)
 clear_markers; d="$TMPDIR/claude-pr-ready"; mkdir -p "$d"
@@ -118,10 +193,11 @@ mk_transcript "$T" "PR #7 and PR #9 are both ready to merge."
 out=$(stop_decision "$T" false)
 echo "$out" | grep -q '"decision":"block"' && ok "stop: multi-PR, one unverified → block" || bad "stop: multi-PR one unverified" "out=$out"
 
-# same multi-PR claim with BOTH named PRs verified → ALLOW
-clear_markers; mark_pass o r 7; mark_pass o r 9
-out=$(stop_decision "$T" false)
-[ -z "$out" ] && ok "stop: multi-PR, both verified → allow" || bad "stop: multi-PR both verified should allow" "out=$out"
+# same multi-PR claim with BOTH named PRs verified (same repo as cwd) → ALLOW
+clear_markers; mark_pass theowner therepo 7; mark_pass theowner therepo 9
+mk_transcript "$T" "PR #7 and PR #9 are both ready to merge."
+out=$(stop_decision_cwd "$T" false "$TMP/repo_same")
+[ -z "$out" ] && ok "stop: multi-PR, both verified (same-repo cwd) → allow" || bad "stop: multi-PR both verified should allow" "out=$out"
 
 # CROSS-REPO collision: a /pull/ URL claim for repoA#9 with a fresh marker only for a
 # DIFFERENT repo's #9 → BLOCK. PR numbers collide across the 3 fleet repos; a repo-
@@ -167,6 +243,17 @@ clear_markers
 GH_MODE=verify0 PATH="$STUB:$PATH" node "$GATE" verify o/r 9 >/dev/null 2>&1; rc=$?
 { [ "$rc" -eq 0 ] && [ -f "$TMPDIR/claude-pr-ready/o_r_9.json" ]; } && ok "verify: paginated all-resolved → PASS(0)" || bad "verify paginate PASS" "rc=$rc"
 
+# markerPath canonicalization (Codex P2 re-review): verify writes the marker under a lower-cased
+# filename regardless of the case typed on the CLI, so a later invalidate that supplies a
+# DIFFERENT case (check-fix-landed passes the PR URL's casing) still deletes the SAME file — even
+# on a case-sensitive filesystem. Assert the actual stored filename is canonical (FS-independent).
+clear_markers
+GH_MODE=verify0 PATH="$STUB:$PATH" node "$GATE" verify TheLineExp/Repo 9 >/dev/null 2>&1
+fn=$(ls "$TMPDIR/claude-pr-ready/" 2>/dev/null)
+[ "$fn" = "thelineexp_repo_9.json" ] && ok "markerPath: verify writes canonical lower-case filename" || bad "markerPath not canonical" "got=$fn"
+node "$GATE" invalidate thelineexp/repo 9 >/dev/null 2>&1   # DIFFERENT case than the verify above
+[ -z "$(ls -A "$TMPDIR/claude-pr-ready/" 2>/dev/null)" ] && ok "markerPath: case-divergent invalidate removes the marker" || bad "markerPath case-divergent invalidate" "left=$(ls "$TMPDIR/claude-pr-ready/")"
+
 # no PR reference at all → ALLOW even with a readiness token
 clear_markers
 mk_transcript "$T" "All done — the refactor is complete and tests pass."
@@ -208,15 +295,17 @@ echo "$out" | grep -q '"decision":"block"' && ok "stop: PR context, no number �
 # co-occurring UNNUMBERED PR ready-claim — no matter how the numbered sibling is spelled
 # (PR #N / bare #N / URL). Any "PR"/"pull request" word not followed by a number = an
 # unverifiable PR → BLOCK, even when every numbered ref has a fresh marker.
-clear_markers; mark_pass o r 7
+# cwd-scoped so the bare/word #7 sibling genuinely PASSES hasFreshPass (marker matches cwd,
+# chunk B6) — the block must then come from the UNNUMBERED_PR path, which is what this tests.
+clear_markers; mark_pass theowner therepo 7
 mk_transcript "$T" "Staging PR #7 is verified and ready. The prod PR is ready to merge."
-out=$(stop_decision "$T" false)
+out=$(stop_decision_cwd "$T" false "$TMP/repo_same")
 echo "$out" | grep -q '"decision":"block"' && ok "stop: verified 'PR #7' + unnumbered 'prod PR' → block" || bad "stop: prod-PR false-pass (word)" "out=$out"
 
 # bare-#N spelling of the verified sibling (round-2 residual) → still BLOCK
-clear_markers; mark_pass o r 7
+clear_markers; mark_pass theowner therepo 7
 mk_transcript "$T" "#7 verified and ready. The prod PR is ready to merge."
-out=$(stop_decision "$T" false)
+out=$(stop_decision_cwd "$T" false "$TMP/repo_same")
 echo "$out" | grep -q '"decision":"block"' && ok "stop: verified bare '#7' + unnumbered 'prod PR' → block" || bad "stop: prod-PR false-pass (#N)" "out=$out"
 
 # URL spelling of the verified sibling (round-2 residual; URL is the house convention) → BLOCK
@@ -356,11 +445,12 @@ mk_transcript "$T" "PRs #7 & 8 are ready to merge."
 out=$(stop_decision "$T" false)
 echo "$out" | grep -q '"decision":"block"' && ok "harvest: elided '#7 & 8', #8 unverified → block" || bad "harvest elision amp" "out=$out"
 
-# same elided list with EVERY listed PR verified → ALLOW (harvest correct, no over-block)
-clear_markers; mark_pass o r 7; mark_pass o r 8; mark_pass o r 9
+# same elided list with EVERY listed PR verified (same repo as cwd) → ALLOW (harvest correct,
+# no over-block; bare `#N`s scope to the current repo under B6 → markers must match cwd).
+clear_markers; mark_pass theowner therepo 7; mark_pass theowner therepo 8; mark_pass theowner therepo 9
 mk_transcript "$T" "PRs #7, 8 and 9 are ready to merge."
-out=$(stop_decision "$T" false)
-[ -z "$out" ] && ok "harvest: elided list, ALL verified → allow" || bad "harvest elision all-verified" "out=$out"
+out=$(stop_decision_cwd "$T" false "$TMP/repo_same")
+[ -z "$out" ] && ok "harvest: elided list, ALL verified (same-repo cwd) → allow" || bad "harvest elision all-verified" "out=$out"
 
 # extra connectors (code-review): slash / plus shorthand, #8 unverified → BLOCK
 clear_markers; mark_pass o r 7
