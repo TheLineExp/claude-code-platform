@@ -34,7 +34,13 @@ const FRESH_MS = 20 * 60 * 1000; // a marker older than 20 min is stale — re-v
 const MARKER_DIR = path.join(os.tmpdir(), 'claude-pr-ready');
 
 function markerPath(owner, repo, pr) {
-  return path.join(MARKER_DIR, `${sanitize(owner)}_${sanitize(repo)}_${sanitize(String(pr))}.json`);
+  // Canonical case-insensitive identity: lower-case owner/repo so the marker's write (verify),
+  // delete (invalidate — check-fix-landed calls it with the PR URL's casing) and read
+  // (hasFreshPass via normRepo) all resolve to ONE filename regardless of the case each caller
+  // supplied. Otherwise a case-divergent invalidate would miss the marker on a case-sensitive
+  // filesystem, leaving a stale PASS and defeating the head-staleness guard. GitHub slugs are
+  // case-insensitive, so collapsing case-variants to one marker is correct (Codex P2, B6R).
+  return path.join(MARKER_DIR, `${sanitize(String(owner).toLowerCase())}_${sanitize(String(repo).toLowerCase())}_${sanitize(String(pr))}.json`);
 }
 function sanitize(s) { return String(s).replace(/[^A-Za-z0-9_.-]/g, '_').slice(0, 80); }
 

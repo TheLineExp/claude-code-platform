@@ -243,6 +243,17 @@ clear_markers
 GH_MODE=verify0 PATH="$STUB:$PATH" node "$GATE" verify o/r 9 >/dev/null 2>&1; rc=$?
 { [ "$rc" -eq 0 ] && [ -f "$TMPDIR/claude-pr-ready/o_r_9.json" ]; } && ok "verify: paginated all-resolved → PASS(0)" || bad "verify paginate PASS" "rc=$rc"
 
+# markerPath canonicalization (Codex P2 re-review): verify writes the marker under a lower-cased
+# filename regardless of the case typed on the CLI, so a later invalidate that supplies a
+# DIFFERENT case (check-fix-landed passes the PR URL's casing) still deletes the SAME file — even
+# on a case-sensitive filesystem. Assert the actual stored filename is canonical (FS-independent).
+clear_markers
+GH_MODE=verify0 PATH="$STUB:$PATH" node "$GATE" verify TheLineExp/Repo 9 >/dev/null 2>&1
+fn=$(ls "$TMPDIR/claude-pr-ready/" 2>/dev/null)
+[ "$fn" = "thelineexp_repo_9.json" ] && ok "markerPath: verify writes canonical lower-case filename" || bad "markerPath not canonical" "got=$fn"
+node "$GATE" invalidate thelineexp/repo 9 >/dev/null 2>&1   # DIFFERENT case than the verify above
+[ -z "$(ls -A "$TMPDIR/claude-pr-ready/" 2>/dev/null)" ] && ok "markerPath: case-divergent invalidate removes the marker" || bad "markerPath case-divergent invalidate" "left=$(ls "$TMPDIR/claude-pr-ready/")"
+
 # no PR reference at all → ALLOW even with a readiness token
 clear_markers
 mk_transcript "$T" "All done — the refactor is complete and tests pass."
