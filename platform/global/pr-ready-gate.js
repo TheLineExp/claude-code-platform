@@ -233,7 +233,7 @@ function hasFreshPass(prRefs, currentRepo) {
     try { mk = JSON.parse(fs.readFileSync(path.join(MARKER_DIR, f), 'utf8')); } catch { continue; }
     if (mk.verdict !== 'PASS') continue;
     if (now - (mk.ts || 0) > FRESH_MS) continue;
-    fresh.push({ repo: (mk.owner && mk.repo) ? `${mk.owner}/${mk.repo}` : null, pr: String(mk.pr) });
+    fresh.push({ repo: (mk.owner && mk.repo) ? normRepo(`${mk.owner}/${mk.repo}`) : null, pr: String(mk.pr) });
   }
   // A bare `#N` that co-occurs with a repo-qualified ref for the SAME number is that same PR
   // spelled twice — the canonical report "[owner/repo#9](…/pull/9)" harvests BOTH {o/r,9} and
@@ -245,7 +245,8 @@ function hasFreshPass(prRefs, currentRepo) {
   for (const ref of prRefs) {
     if (ref.repo != null) {
       // Repo-qualified (from a /pull/ URL): a SAME-REPO fresh marker is required (Codex P1).
-      if (!fresh.some(m => m.pr === ref.pr && m.repo === ref.repo)) return false;
+      // Compare case-insensitively — GitHub slugs are case-insensitive (Codex P2, B6R).
+      if (!fresh.some(m => m.pr === ref.pr && m.repo === normRepo(ref.repo))) return false;
     } else if (!qualifiedNums.has(ref.pr)) {
       // Genuinely bare `#N` (no qualified sibling): scope it to the current repo; block on
       // ambiguity or an undeterminable cwd. Only real (non-null) marker repos count — a
@@ -263,7 +264,7 @@ function hasFreshPass(prRefs, currentRepo) {
 // can be tied to a specific repo's marker. Returns `owner/repo`, or null on any failure (cwd
 // not a git repo / no `origin` / unparseable URL) — null is BLOCK-biased in hasFreshPass.
 function currentRepoSlug(cwd) {
-  try { return parseRepoSlug(run('git', ['-C', String(cwd || '.'), 'remote', 'get-url', 'origin'])); }
+  try { return normRepo(parseRepoSlug(run('git', ['-C', String(cwd || '.'), 'remote', 'get-url', 'origin']))); }
   catch { return null; }
 }
 // Parse `owner/repo` from any remote-URL form — https, scp-like `git@host:owner/repo`,
@@ -274,6 +275,11 @@ function parseRepoSlug(url) {
   const m = s.match(/[:/]([^/:\s]+)\/([^/:\s]+)$/);
   return m ? `${m[1]}/${m[2]}` : null;
 }
+// GitHub repo slugs are case-insensitive, but a marker's `owner/repo` (written from shipit's
+// `verify <owner/repo>` argv) and the cwd's `origin` URL can differ in case. Normalize both
+// sides to lower case before matching so a legitimately-verified same-repo ref isn't rejected
+// on casing alone (Codex P2). Null-safe: preserves the block-biased null sentinel.
+function normRepo(slug) { return slug == null ? null : String(slug).toLowerCase(); }
 
 // ── INVALIDATE MODE ─────────────────────────────────────────────────────────────
 // `node pr-ready-gate.js invalidate <owner/repo> <pr#>` — delete a PR's PASS marker.

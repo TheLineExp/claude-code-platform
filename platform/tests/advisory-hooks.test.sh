@@ -164,6 +164,15 @@ mk_transcript "$T" "PR #9 is ready to merge."
 out=$(stop_decision_cwd "$T" false "$TMP/repo_same")
 [ -z "$out" ] && ok "B6 stop: bare '#9' + valid same-repo marker despite a repo-less marker → allow" || bad "B6 null-repo phantom ambiguity" "out=$out"
 
+# CASE-INSENSITIVE slugs (Codex P2): a marker written by `verify TheLineExp/Repo 9` must satisfy
+# a bare "#9 ready" from a cwd whose origin is lower-cased (github.com/thelineexp/repo) — GitHub
+# treats them as the same repo. Pre-fix this false-BLOCKED on the exact-string Set.has check.
+clear_markers; mark_pass TheLineExp Repo 9
+mk_gitrepo "$TMP/repo_case" thelineexp/repo
+mk_transcript "$T" "PR #9 is ready to merge."
+out=$(stop_decision_cwd "$T" false "$TMP/repo_case")
+[ -z "$out" ] && ok "B6 stop: bare '#9' + case-differing same-repo marker → allow (case-insensitive)" || bad "B6 case-insensitive allow" "out=$out"
+
 # stale marker (ts old) → BLOCK  (marker machinery unchanged)
 clear_markers; d="$TMPDIR/claude-pr-ready"; mkdir -p "$d"
 printf '{"owner":"o","repo":"r","pr":9,"verdict":"PASS","ts":1}' > "$d/o_r_9.json"

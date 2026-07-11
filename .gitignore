@@ -1,5 +1,7 @@
 # Claude Code Platform
 .claude/settings.local.json
+# per-worktree transient window id — never commit (main checkout stays 'setup')
+.claude/window-id
 .claude/plans/
 .context/
 
