@@ -47,7 +47,7 @@ When all boxes are ticked, file evidence via:
 1. From the appropriate repo's main path, run `/letsbuild` → creates worktree, branch, registers.
 2. Open a NEW Claude Code window at the worktree path.
 3. Implement, write tests, run tests, `/shipit` (opens the PR — does NOT merge).
-4. When the PR is open, CI is green, and local reviews are clean, report to M: `{{chunk_id}} READY at #<PR>. <test count> tests added. Acceptance evidence filed.` **Do NOT merge and do NOT report "merged" — agents never merge; M verifies and the user merges.**
+4. When the PR is open, CI is green, and local reviews are clean, report to M: `{{chunk_id}} READY at #<PR>. <test count> tests added. Acceptance evidence filed.` **Do NOT merge and do NOT report "merged" — agents never merge. M reviews/accepts the READY PR, the user merges, then M runs `/pm verify` to confirm it landed.**
 
 ## LOC budget
 
@@ -62,15 +62,17 @@ If your scope grows past **{{loc_estimate}} × 1.5** ({{loc_threshold}}) product
 
 ## Status reporting back to M
 
-Dev windows **NEVER merge** — only the user merges, and only **after M verifies**. When your
-PR is open, CI is green, and local reviews are clean, report to M in this exact format (M runs
-`/pm verify <PR>` after the user merges):
+Dev windows **NEVER merge** — only the user merges. When your PR is open, CI is green, and
+local reviews are clean, report to M in this exact format:
 
 ```
 {{chunk_id}} READY at #<PR>. {{tests_count}} tests added. Acceptance: {{acceptance_status}}.
 ```
 
-Do NOT report "merged" and do NOT merge. If a review thread lands, fix it in one pass, reply
+Do NOT merge and do NOT report "merged." Two distinct M gates, don't conflate them: **before**
+the user merges, M reviews/accepts the READY PR (acceptance + milestone gate); **after** the
+user merges, M runs `/pm verify <PR>` to confirm it landed on origin (the spec checks the merge
+commit, so it only works post-merge). If a review thread lands, fix it in one pass, reply
 INLINE on each thread (never a bottom-of-PR summary), re-run the required reviewers, and
 re-report READY.
 
