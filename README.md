@@ -19,10 +19,11 @@ guard hooks — no per-repo skills or agents.
 
 | Piece | Contents |
 |-------|----------|
-| `skills/` | `doctrine`, `feature`, `graphify`, `letsbuild`, `pm`, `route`, `shipit`, `todo`, `traceability-review` |
+| `skills/` | `doctrine`, `feature`, `graphify`, `handoff`, `letsbuild`, `pm`, `route`, `shipit`, `todo`, `traceability-review` |
 | `agents/` | `parity-sweep` (blast-radius sweeper), `money-concurrency-reviewer` (TOCTOU/race reviewer), `traceability-reviewer` (call-chain checker), `project-evaluator` (post-plan sizing gate), `outside-reviewer` (context-isolated pre-push review) — canonical roster: [SKILLS_REFERENCE.md](docs/SKILLS_REFERENCE.md) |
 | `backlog-gate.js` | PreToolUse hook — confirms every `/todo` / `/feature` add (Doctrine Rule 4) |
 | `statusline-command.sh` | Statusline |
+| `handoff.sh` | Engine for the `handoff` skill — checkpoint/rotate/orient a window across `/clear`; snapshots keyed by a per-window anchor (claude process) so multiple windows (M + dev) never overwrite or cross-load each other |
 | `claude-CLAUDE.template.md` | → `~/.claude/CLAUDE.md` |
 | `claude-settings.template.json` | → `~/.claude/settings.json` |
 
