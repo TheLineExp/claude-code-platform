@@ -4,7 +4,7 @@ Canonical source: `platform/global/skills/*/SKILL.md` and `platform/global/agent
 This page summarizes; the SKILL.md files are authoritative. Everything here is user-global
 (synced to `~/.claude` by `setup-machine.sh`) — there are no per-repo skills or agents.
 
-## Skills (9)
+## Skills (10)
 
 ### `/doctrine`
 The Operating Doctrine — five non-negotiable engineering rules (do the work / root-cause
@@ -69,6 +69,19 @@ End-to-end call-chain verification: traces every button, link, and form action t
 UI → API client → backend route → service → database, verifying function signatures,
 argument passing, and return shapes match at every boundary. Use after multi-layer
 features and before deploying. Backed by the `traceability-reviewer` agent.
+
+### `/handoff`
+Session checkpoint / rotate / orient — engine `~/.claude/handoff.sh`. Captures a window's
+place (feature, phase, next action, open threads, `file:line` pointers) into a dense ~3k
+snapshot so you can `/clear` the marathon context and resume in the SAME window without
+losing your place (the enforcement side of the context-cache cost work + the "one feature
+per session" rule). Modes: `/handoff` (checkpoint & rotate), `resume` (re-seed a cleared
+window), `where` (cross-window roll-up — what's built where, where M is), `prune` (archive
+stale registrations), `list`. Each snapshot is bound to a **per-window anchor** (the claude
+process, stable across `/clear`, unique per window) so multiple windows — M + dev, even on
+the same branch and cwd — never overwrite or cross-load each other's checkpoint; `resume`
+matches that anchor and refuses to guess when only branch/cwd is ambiguous. Reads `/pm`
+rosters for `where`; complements `/pm`, does not replace it.
 
 ## Agents (5) — `platform/global/agents/`
 

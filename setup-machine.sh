@@ -117,6 +117,7 @@ declare -a SRC_FILES=( \
   "$GLOBAL_SRC/session-guard.js" \
   "$GLOBAL_SRC/pr-ready-gate.js" \
   "$GLOBAL_SRC/statusline-command.sh" \
+  "$GLOBAL_SRC/handoff.sh" \
 )
 declare -a LIVE_FILES=( \
   "$CLAUDE_HOME/CLAUDE.md" \
@@ -125,6 +126,7 @@ declare -a LIVE_FILES=( \
   "$CLAUDE_HOME/hooks/session-guard.js" \
   "$CLAUDE_HOME/hooks/pr-ready-gate.js" \
   "$CLAUDE_HOME/statusline-command.sh" \
+  "$CLAUDE_HOME/handoff.sh" \
 )
 
 # ── DIFF MODE ─────────────────────────────────────────────────────────────────
@@ -289,6 +291,9 @@ done
 
 # Make statusline executable
 chmod +x "$CLAUDE_HOME/statusline-command.sh"
+
+# Make the handoff engine executable
+chmod +x "$CLAUDE_HOME/handoff.sh"
 
 # Remove retired file
 RETIRED="$CLAUDE_HOME/hooks/graphify-autoquery.js"
