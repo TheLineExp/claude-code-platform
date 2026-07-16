@@ -18,11 +18,23 @@ _Migrated from `fleetmanager-reservations/docs/FEATURE_REQUESTS.md` on 2026-06-1
 - Add with `/feature add <description>` (size-checked — small/defined work goes to `/todo`).
 - Every request carries a **Repo(s)/area** tag so the cross-repo list stays scannable.
 - `/feature review` re-prioritizes and checks whether items should move to a repo's `MASTER_PLAN.md` or down to `/todo`.
-- FR IDs are a single shared sequence across all repos. Next free ID: **FR-063**.
+- FR IDs are a single shared sequence across all repos. Next free ID: **FR-064**.
 
 ---
 
 ## Open Requests
+
+### FR-063: Public-site SEO + AI-search indexability (React Router 7 SSR migration)
+- **Repo(s)/area**: reservations — `frontend/` (SSR migration) + `backend/` (host-driven robots/sitemap/llms + per-fleet SEO flag) + azure (Container Apps hosting change: static-nginx → Node SSR server)
+- **Status**: open (plan drafted 2026-07-15, `~/.claude/plans/reservations-we-want-bright-whisper.md` — approach approved, parked before build)
+- **Priority**: high (customer discovery + AI-search visibility; today the entire public booking site is invisible to Google's first pass and to all non-JS AI crawlers)
+- **Phase-fit**: new multi-PR reservations project; will divert `/letsbuild` → `/pm` (large migration of a live transactional app). Ties into `docs/AGENT_BOOKING_PLAN.md:246-256` (robots/sitemap/Schema.org already listed as TODO) and the existing agent-booking API + `llms.txt`/`ai-plugin.json`.
+- **Requested**: 2026-07-15
+- **Source**: Mike, 2026-07-15 — "we want our reservations pages, guide-me and booking flow all indexed on Google … how do we make sure our full site gets indexed and added to AI searches as well." Building more extensive guidance into these pages, so discoverability of that content matters.
+- **Root cause**: `frontend/` is a pure client-side-rendered Vite/React SPA served by nginx as an empty `<div id="root">` shell — non-JS crawlers (all AI crawlers: GPTBot/ClaudeBot/PerplexityBot/Google-Extended, + Google's first indexing pass) see no title/description/content on any URL. Zero SEO infra today (no robots.txt, sitemap, meta description, OG, canonical, or structured data — all verified MISSING).
+- **Approved approach (decisions locked at planning)**: (1) **Full SSR migration** to React Router 7 *framework mode* (RR7 = Remix merge, built-in SSR) — the root-cause fix, not a bolt-on prerender. (2) **Index scope = discovery pages only** (fleet landing, guided "Help Me Choose" finder, future experience/bike guidance); transactional/tokenized pages (cart/checkout, confirmation, manage, rider, waiver, payment) explicitly `noindex`. (3) **Host-driven multi-tenant** SEO with a per-fleet `seoIndexingEnabled` toggle (default ON) — works for every fleet's custom domain; Azure fallback FQDNs → `Disallow: /` + canonical to primary domain. Apex `theline.bike` (Squarespace) is out of scope.
+- **Phasing** (de-risked; full detail in the plan file): P0 SSR-safety audit + spike → P1 framework-mode scaffold at full parity (no SEO yet) → P2 hosting cutover (Node SSR behind existing nginx, preserve tuned CSP) → P3 server-side host→fleet resolution + isomorphic API → P4 content loaders + RR7 `meta` (title/description/canonical/OG/JSON-LD LocalBusiness/Product/Offer) → P5 host-driven robots.txt/sitemap.xml/llms.txt + per-fleet flag → P6 exclusions + bot-UA verification + Search Console/Bing onboarding → P7 (parked) per-experience URLs + FM V3 admin toggle UI.
+- **Notes**: Reuse — existing public API + `resolve-host` (feed loaders), `backend/public/llms.txt`/`ai-plugin.json`/agent OpenAPI (surface on customer domain), nginx CSP block (extend, never replace — Codex-P1 history), `FleetProvider`/`FleetContext`, RR7 native `meta` (replaces react-helmet). Biggest risk = SSR-safety of Stripe Elements / Microsoft Clarity / kiosk mode / iframe embedding under hydration → hard parity gate in P1 before any SEO. Verification: `curl -A GPTBot` on staging returns real HTML+JSON-LD+content; transactional URLs `noindex`; Rich Results Test passes; sitemap submitted.
 
 ### FR-062: Return-to-service date required for out-of-service bikes (future-booking gate)
 - **Repo(s)/area**: cross-repo — reservations (future availability gate) + FM V3 (status→OOS coupling, return-date UI, checkout override)
