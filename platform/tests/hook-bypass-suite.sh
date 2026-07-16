@@ -83,6 +83,24 @@ make_repo "$PLAIN" "main"
 FLEET_WT="$TMP/fleet_wt"
 git -C "$FLEET_FEAT" worktree add -q "$FLEET_WT" -b feature/w1-wt
 
+# TRUNK repos — .claude/-shaped (fleet-shaped) but a config/data trunk, NOT a
+# product deploy target. block-protected-branch must ALLOW direct main writes
+# (the /feature + /todo backlog direct-push workflow). Two match paths:
+#   TRUNK_REMOTE — arbitrary dir name, origin remote names claude-code-platform
+#   TRUNK_NAME   — no remote, worktree-toplevel basename IS claude-code-platform
+# Plus a NEGATIVE: a fleet repo whose remote is a PRODUCT repo stays BLOCKED
+# (proves the exemption matches the allowlist, never over-matches).
+TRUNK_REMOTE="$TMP/trunk_remote"
+make_repo "$TRUNK_REMOTE" "main";  register_work "$TRUNK_REMOTE"
+git -C "$TRUNK_REMOTE" remote add origin https://github.com/TheLineExp/claude-code-platform.git
+
+TRUNK_NAME="$TMP/claude-code-platform"
+make_repo "$TRUNK_NAME" "main";    register_work "$TRUNK_NAME"
+
+FLEET_PRODREMOTE="$TMP/fleet_prod"
+make_repo "$FLEET_PRODREMOTE" "master"; register_work "$FLEET_PRODREMOTE"
+git -C "$FLEET_PRODREMOTE" remote add origin https://github.com/TheLineExp/fleetmanager-reservations.git
+
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
@@ -237,6 +255,18 @@ block "$H" "$FLEET_EMPTY" 'git push origin master'                       'A8: EM
 block "$H" "$FLEET_EMPTY" 'git commit -m "x"'                            'A8: commit on master, emptied active-work'
 allow "$H" "$PLAIN" 'git commit -m "x"'                                  'personal repo (no .claude): trunk commits OK'
 allow "$H" "$PLAIN" 'git push origin main'                               'personal repo (no .claude): push main OK'
+
+# TRUNK-repo exemption — .claude/-shaped config/data repo, direct main writes OK
+allow "$H" "$TRUNK_REMOTE" 'git push origin main'                        'trunk (remote-match): push main OK'
+allow "$H" "$TRUNK_REMOTE" 'git commit -m "x"'                           'trunk (remote-match): commit on main OK'
+allow "$H" "$TRUNK_REMOTE" 'git push origin HEAD:master'                 'trunk (remote-match): refspec to protected OK'
+allow "$H" "$TRUNK_REMOTE" 'git merge feature/x'                         'trunk (remote-match): merge on main OK'
+allow "$H" "$TRUNK_NAME"   'git push origin main'                        'trunk (name-match, no remote): push main OK'
+allow "$H" "$TRUNK_NAME"   'git commit -m "x"'                           'trunk (name-match, no remote): commit on main OK'
+allow "$H" "$FLEET_FEAT" 'git -C "'"$TRUNK_REMOTE"'" push origin main'   'trunk via -C effdir resolution: allow'
+# NEGATIVE — a fleet repo whose remote is a PRODUCT repo must STAY blocked
+block "$H" "$FLEET_PRODREMOTE" 'git push origin master'                  'product remote (not trunk): push master still BLOCKED'
+block "$H" "$FLEET_PRODREMOTE" 'git commit -m "x"'                       'product remote (not trunk): commit on master still BLOCKED'
 
 # ---------------------------------------------------------------------------
 # block-no-verify.sh — A2 (-n short form), A9 (false positives)

@@ -13,6 +13,17 @@
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 
 PROTECTED_BRANCHES="staging master main"
+
+# Config/data TRUNK repos — NOT product deploy targets. Their `main` is the
+# intended direct-push workflow (e.g. the /feature + /todo backlog skills do
+# `git commit && push` to main, and the dev-system config lives here), so
+# block-protected-branch does NOT gate their deploy branches. Matched by
+# origin-remote repo name OR worktree-toplevel basename (see _is_trunk_repo).
+# This is the ONE exemption to deploy-branch protection — product repos
+# (reservations / Fleetmanager_V3 / vouchers) are never listed here and stay
+# fully protected. Space-separated repo names.
+TRUNK_REPOS="claude-code-platform"
+
 FEATURE_PREFIX="feature/"
 OWNER_PREFIXES="mk"
 MERGE_POLICY="block-all"   # agents never merge PRs — doctrine

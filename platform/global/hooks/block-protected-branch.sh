@@ -23,6 +23,11 @@ _pb_check() {
 
   effdir=$(_resolve_dir "${CMD_EFFDIR:-.}")
   _fleet_shaped "$effdir" || return
+  # A config/data trunk repo (e.g. the dev-system + backlog repo) is .claude/-shaped
+  # but is NOT a product deploy target — direct push/commit to its main is the
+  # intended workflow (the /feature + /todo skills commit && push to main). Exempt
+  # it from deploy-branch protection; product repos are never in $TRUNK_REPOS.
+  _is_trunk_repo "$effdir" && return
   branch=$(git -C "$effdir" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)
 
   # Refspec check (push): a push can target a protected branch from ANY branch —

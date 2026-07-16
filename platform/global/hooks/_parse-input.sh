@@ -145,3 +145,24 @@ _fleet_shaped() {
   done
   return 1
 }
+
+# Config/data TRUNK repo? (e.g. the dev-system + backlog repo.) Such repos use
+# direct-push-to-main as their intended workflow, so block-protected-branch does
+# NOT gate their deploy branches. Matched against $TRUNK_REPOS (from _config.sh)
+# by the origin-remote repo name (stable across worktrees/clones) OR the
+# worktree-toplevel basename (covers a local-only main checkout with no remote).
+# Fails CLOSED — returns not-trunk (stays PROTECTED) when $TRUNK_REPOS is unset
+# or neither the remote nor the toplevel resolves — so a missing config can never
+# silently unprotect a product repo. Only block-protected-branch calls this.
+_is_trunk_repo() {
+  local at="${1:-.}" url base tl name
+  [ -n "${TRUNK_REPOS:-}" ] || return 1
+  url=$(git -C "$at" remote get-url origin 2>/dev/null)
+  base="${url##*/}"; base="${base%.git}"            # https or ssh URL → repo name
+  tl=$(git -C "$at" rev-parse --show-toplevel 2>/dev/null); tl="${tl##*/}"
+  for name in $TRUNK_REPOS; do
+    [ -n "$base" ] && [ "$base" = "$name" ] && return 0
+    [ -n "$tl" ]   && [ "$tl" = "$name" ]   && return 0
+  done
+  return 1
+}

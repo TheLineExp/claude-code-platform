@@ -16,13 +16,17 @@ generated FROM this repo — see docs/AUDIT-2026-07-02.md for why.
     gh-merge, rebase) run everywhere; worktree-discipline hooks self-gate on a registered
     `.claude/active-work.md` (via `_fleet_active`), while block-protected-branch gates on a
     `.claude/` dir existing (`_fleet_shaped` — fail-CLOSED even if active-work.md is emptied;
-    audit A8). Guards match on the normalized ARGV MODEL emitted by ONE shell-faithful
+    audit A8). ONE exemption: a config/data TRUNK repo listed in `$TRUNK_REPOS` (`_config.sh`;
+    this repo) — whose `main` is the intended direct-push workflow (the `/feature`+`/todo`
+    backlog `commit && push` flow) — is NOT deploy-branch-protected, matched by origin-remote
+    or worktree basename via `_is_trunk_repo` (fail-CLOSED; product repos are never listed).
+    Guards match on the normalized ARGV MODEL emitted by ONE shell-faithful
     tokenizer (`_tokenize.pl`, sourced via `_parse-input.sh`) — never string regex, so the
     git and writer surfaces cannot drift and a flag literal inside a quoted `-m` message is
     just one token the guard skips (audit A9). Policy (`_config.sh`) is hardcoded — no
     platform.config.json. `_tokenize.pl` is a hard dependency: setup-machine.sh mirrors
     `*.sh` + `*.pl`, and without it the guards fail OPEN.
-    **Any hook edit must run `platform/tests/hook-bypass-suite.sh` (194) AND
+    **Any hook edit must run `platform/tests/hook-bypass-suite.sh` (250) AND
     `platform/tests/hook-grammar-fuzz.sh` (CLEAN) before AND after — canonical and live.
     Edits to the advisory hooks (`check-fix-landed.sh`, `pr-ready-gate.js`) must also run
     `platform/tests/advisory-hooks.test.sh`.**
