@@ -74,7 +74,7 @@ Run scripts at `~/.claude/skills/pm/scripts/sweep.sh` for the heavy lifting.
 
 **Default: output a ONE-LINE handoff pointer, NOT the brief body.** The brief file at `~/.claude/pm/<active-project>/briefs/chunk-<id>.md` already holds the full scope (files-owned, must-not-touch, ground-before-write, acceptance, workflow); the dev window reads it off disk. Dumping the whole block is what the user explicitly does NOT want. Emit exactly this line, filling `<window>`/`<title>` from the master-plan chunk row and `<project>` from `.active-project`:
 
-> Working dir: `<absolute-worktree-path>` (quote it in every command — it contains a space). You are Dev-`<window>` on PM project `<project>`. Read your brief at `~/.claude/pm/<project>/briefs/chunk-<id>.md` and the master plan at `~/.claude/pm/<project>/master-plan.md`, then execute chunk `<id>` (`<title>`). Report back to M when merged.
+> Working dir: `<absolute-worktree-path>` (quote it in every command — it contains a space). You are Dev-`<window>` on PM project `<project>`. Read your brief at `~/.claude/pm/<project>/briefs/chunk-<id>.md` and the master plan at `~/.claude/pm/<project>/master-plan.md`, then execute chunk `<id>` (`<title>`). When the PR is open + CI is green, report back to M as `<id> READY at #<PR>` — never merge (agents never merge; M reviews/accepts, the user merges, then M `/pm verify`s that it landed).
 
 Only print the full brief body if the user passes `--full` (`/pm brief <id> --full`). If the brief file doesn't exist yet, generate it from the template first, then emit the one-liner.
 
