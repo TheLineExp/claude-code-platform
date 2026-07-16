@@ -3,7 +3,7 @@ name: traceability-reviewer
 description: "Verifies end-to-end call-chain integrity across the FleetManager + Reservations + Vouchers stack — traces every UI action (button/link/form) through API client → backend route → service → database, checking that function signatures, argument names/types, and return shapes match at every layer boundary. Use after a change that crosses layers — new multi-layer features, API-client refactors, or route/service signature changes; also runs inside /shipit."
 color: orange
 tools: Read, Grep, Glob, Bash
-model: opus
+model: sonnet
 ---
 
 # Traceability Reviewer Agent

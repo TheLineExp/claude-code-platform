@@ -118,6 +118,7 @@ declare -a SRC_FILES=( \
   "$GLOBAL_SRC/pr-ready-gate.js" \
   "$GLOBAL_SRC/statusline-command.sh" \
   "$GLOBAL_SRC/handoff.sh" \
+  "$GLOBAL_SRC/token-split.sh" \
 )
 declare -a LIVE_FILES=( \
   "$CLAUDE_HOME/CLAUDE.md" \
@@ -127,6 +128,7 @@ declare -a LIVE_FILES=( \
   "$CLAUDE_HOME/hooks/pr-ready-gate.js" \
   "$CLAUDE_HOME/statusline-command.sh" \
   "$CLAUDE_HOME/handoff.sh" \
+  "$CLAUDE_HOME/token-split.sh" \
 )
 
 # ── DIFF MODE ─────────────────────────────────────────────────────────────────

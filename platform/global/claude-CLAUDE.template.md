@@ -75,11 +75,20 @@ sizing at letsbuild Phase 0.5, `/doctrine ship-gate` backstop inside `/shipit`,
 - Before building anything described as missing/broken, check `git log`/closed PRs first —
   it may be a regression of shipped work; find what regressed instead of rebuilding.
 
-# Delegation (route)
-- Delegate mechanical work (bulk edits, grep sweeps, file reads + summary, test runs, log
-  scraping, doc updates from a spec) to Sonnet subagents via `Agent(model: "sonnet")`; keep
-  judgment work (architecture, debugging, review, planning, novel code) on the main thread.
-  Details: `/route`.
+# Model-tier routing — ENFORCED DEFAULT, not opt-in (cut tokens ~50% at same quality)
+- Route every subtask to the CHEAPEST tier that preserves quality, automatically — do NOT
+  wait for an explicit `/route`. Full tier map: memory `proactive-sonnet-routing`.
+- **Opus (main thread + `money-concurrency-reviewer` + `outside-reviewer` + `project-evaluator` ONLY):**
+  architecture, debugging unknowns, novel code, planning, review-of-reviews, money-path and
+  P1-catching review, and the post-plan sizing/gap gate (`project-evaluator`). Never drop
+  these to a lower tier — the miss costs more than it saves.
+- **Sonnet (`Agent(model:"sonnet")`):** back-merges, doc/memory writes from a spec, test runs
+  + summarize, grep/glob/`Explore` sweeps, bulk mechanical edits, staging-migration checks.
+  The agents `traceability-reviewer` / `parity-sweep` run Sonnet.
+- **Haiku (`Agent(model:"haiku")`):** git cleanup, CI/deploy polling (`gh pr checks`,
+  `gh run watch`), log scraping, single-fact lookups, PR-thread status reads.
+- Built-in `Explore`/`general-purpose` INHERIT Opus unless you pass `model` — always pass
+  `sonnet` (sweeps) or `haiku` (single lookups). Details/nudges: `/route`.
 
 # graphify — optional aid, never a gate
 - Use `/graphify` queries when a fresh graph exists; a graph older than HEAD lies — refresh

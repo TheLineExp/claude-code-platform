@@ -76,6 +76,21 @@ if [ -n "$transcript" ] && [ -f "$transcript" ]; then
   fi
 fi
 
+# --- Opus output burn this session (offload gauge) ---
+# Sums this session's own output tokens (main thread = Opus). The number you're
+# trying to shrink; full by-model split is `~/.claude/token-split.sh`.
+if [ -n "$transcript" ] && [ -f "$transcript" ]; then
+  out_tok=$(jq -rs 'map(.message.usage.output_tokens // 0) | add // 0' "$transcript" 2>/dev/null || echo 0)
+  if [ -n "$out_tok" ] && [ "$out_tok" -gt 0 ]; then
+    if [ "$out_tok" -ge 1000000 ]; then
+      disp=$(awk -v n="$out_tok" 'BEGIN{printf "%.1fM", n/1000000}')
+    else
+      disp=$(awk -v n="$out_tok" 'BEGIN{printf "%.0fk", n/1000}')
+    fi
+    parts+=("$(printf '\033[0;90m⊙%s out\033[0m' "$disp")")
+  fi
+fi
+
 # Join with spaces
 printf '%s' "${parts[0]}"
 for part in "${parts[@]:1}"; do
