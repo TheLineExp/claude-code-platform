@@ -18,11 +18,28 @@ _Migrated from `fleetmanager-reservations/docs/FEATURE_REQUESTS.md` on 2026-06-1
 - Add with `/feature add <description>` (size-checked — small/defined work goes to `/todo`).
 - Every request carries a **Repo(s)/area** tag so the cross-repo list stays scannable.
 - `/feature review` re-prioritizes and checks whether items should move to a repo's `MASTER_PLAN.md` or down to `/todo`.
-- FR IDs are a single shared sequence across all repos. Next free ID: **FR-064**.
+- FR IDs are a single shared sequence across all repos. Next free ID: **FR-065**.
 
 ---
 
 ## Open Requests
+
+### FR-064: Bike Catalog — per-type descriptions + home-location matching + attached reviews/blogs (SEO/AI content layer on SSR)
+- **Repo(s)/area**: cross-repo — reservations (public SSR catalog pages + content model + Schema.org Product/Review/BlogPosting + sitemap entries) + FM V3 (bike-type description/content admin + home-location mapping) · **content layer that sits ON the FR-063 SSR foundation**
+- **Status**: open (parked 2026-07-15 — build AFTER FR-063 SSR migration lands; Mike explicitly gated it on "after we move to SSR")
+- **Priority**: high (Mike: "critical piece of content for search engine and agent optimization and indexing" — this is the substantive discovery/indexable content the FR-063 plumbing exists to surface)
+- **Phase-fit**: hard dependency on **FR-063** (needs the SSR framework, host→fleet resolution, and JSON-LD/robots/sitemap infra to exist first). Natural home for FR-063's parked **P7** (per-experience/per-bike URLs) and extends its P4 Product/Offer structured data with real catalog content. New multi-PR project; will divert `/letsbuild` → `/pm`.
+- **Requested**: 2026-07-15
+- **Source**: Mike, 2026-07-15 — "build a bike catalog after we move to SSR. I want a full bike catalog of all the types and descriptions of the bikes, then match the bike types with the locations they have listed as home. Critical for search-engine and agent optimization/indexing. Ideally we can attach reviews, blogs and other content to each bike/type."
+- **Description**: A public, SSR-rendered, fully-indexable **bike catalog**: (1) an entry per **bike type** with a rich, structured description (specs, use-case, sizing, imagery); (2) each bike type **matched to the location(s) that list it as home** so the catalog is browsable by location and by type, and each fleet/location page can advertise its own inventory; (3) **attachable content per bike/type** — customer reviews, blog posts, guides, and other media — so each catalog entry accretes durable indexable content over time. All rendered server-side with Schema.org markup (Product / Offer / AggregateRating / Review / BlogPosting) and wired into robots/sitemap/llms so both Google and AI crawlers index every type and location.
+- **Design questions (scoping pass required)**:
+  - **Where the catalog/content model lives**: reservations DB (new `BikeCatalogEntry` / `BikeTypeContent` + `ContentAttachment` models, per-fleet or global-with-fleet-overrides?) vs FM V3 vs the Squarespace apex. Bike-type names are canonical in FM V3 (`BikeType.name`) and priced per-fleet in reservations (`PricingRule.bikeType`) — decide the source of truth and the seam (see the FR-046 drift lesson: catalog must not re-introduce a name registry that drifts).
+  - **Global vs per-fleet catalog**: is `/bikes/:type` one canonical entry, or fleet-scoped (`<fleet-domain>/bikes/:type`)? Multi-tenant host model from FR-063 pushes toward per-fleet on each custom domain with a shared type description + per-fleet availability/pricing/home-location.
+  - **Home-location matching source**: which field designates a bike type's "home" location(s) — derive from where inventory/`PricingRule` exists per fleet, or an explicit admin assignment? (Confirm against the current bike→location/fleet model.)
+  - **Reviews source**: real post-rental customer reviews (net-new review-capture flow?) vs manually curated vs imported (Google reviews). AggregateRating needs a governed, non-fabricated source — do NOT synthesize reviews.
+  - **Blog/content home**: apex `theline.bike` is Squarespace (out of scope in FR-063) — decide whether blogs live there and are linked, or are authored/hosted in-app for indexable co-location with the catalog.
+  - **URL scheme + canonicalization** (coordinate with FR-063 P4/P6 `noindex` rules and canonical-to-primary-domain handling).
+- **Notes**: **Blocked on FR-063** — do not start until the SSR framework + host resolution + JSON-LD/sitemap infra land (this is the content that makes FR-063 worthwhile). Reuse: FR-063's RR7 `meta`/loaders + JSON-LD helpers + host-driven sitemap/robots/llms, the public availability/pricing API (per-fleet type list + prices), FM V3 `BikeType` registry, the fleet/location model. Cross-links: **FR-063** (SSR/SEO foundation — its P7 per-bike URLs fold in here), **FR-045/FR-042** (per-type/experience content patterns), and the guided "Help Me Choose" finder (catalog entries should interlink with guided experiences for both SEO and UX). Watch: fabricated reviews/ratings (governance), content drift vs the canonical type registry (FR-046 lesson), and keeping transactional pages `noindex` while catalog pages index.
 
 ### FR-063: Public-site SEO + AI-search indexability (React Router 7 SSR migration)
 - **Repo(s)/area**: reservations — `frontend/` (SSR migration) + `backend/` (host-driven robots/sitemap/llms + per-fleet SEO flag) + azure (Container Apps hosting change: static-nginx → Node SSR server)
