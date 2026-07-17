@@ -1,3 +1,3 @@
 | Window | Branch | Worktree Path | Area | Started |
 |--------|--------|---------------|------|---------|
-| s | feature/s-per-window-project-context | (main checkout) | Per-window project context: shared window-context.sh resolver (anchor-keyed) fixing /sitrep wrong-project + token cost; wires sitrep/statusline/letsbuild/pm/handoff | 2026-07-17 |
+| s | feature/s-window-context-backfill-polish | (main checkout) | Follow-up polish to window-context.sh: backfill resolves PM project slug + normalizes role; statusline chip caps the project component while keeping the chunk | 2026-07-17 |

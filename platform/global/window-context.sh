@@ -246,6 +246,9 @@ wc_chip() {
   [ -f "$f" ] || return 0
   p=$(jq -r '.project // empty' "$f" 2>/dev/null); [ -n "$p" ] || return 0
   c=$(jq -r '.chunk // empty' "$f" 2>/dev/null)
+  # Keep the statusline tidy — cap the PROJECT component (long PM slugs / prose that survived
+  # backfill) but always keep the chunk visible.
+  [ ${#p} -gt 24 ] && p="$(printf '%.23s' "$p")…"
   if [ -n "$c" ] && [ "$c" != "-" ]; then printf '%s:%s' "$p" "$c"; else printf '%s' "$p"; fi
 }
 
@@ -273,9 +276,23 @@ wc_backfill() {
     phase=$(awk 'NR==1&&$0=="---"{i=1;next} i&&$0=="---"{exit} i&&/^phase:/{sub(/^phase:[[:space:]]*/,"");print;exit}' "$f")
     pr=$(awk 'NR==1&&$0=="---"{i=1;next} i&&$0=="---"{exit} i&&/^pr:/{sub(/^pr:[[:space:]]*/,"");print;exit}' "$f")
     next=$(awk 'NR==1&&$0=="---"{i=1;next} i&&$0=="---"{exit} i&&/^next:/{sub(/^next:[[:space:]]*/,"");print;exit}' "$f")
+    # Snapshots store `feature:` as PROSE, not a slug. Resolve a clean project: prefer a known
+    # /pm project-dir name that appears in the feature text (so PM windows resolve to their dir
+    # and the chip stays short); otherwise keep the prose. Normalize role to a short token too.
+    local proj="$feat" pmd b
+    for pmd in "$HOME/.claude/pm"/*/; do
+      [ -d "$pmd" ] || continue
+      b=$(basename "$pmd"); [ "$b" = "archive" ] && continue
+      case "$feat" in *"$b"*) proj="$b"; break ;; esac
+    done
+    case "$role" in
+      *[Dd]ev*)  role="dev" ;;
+      *[Ss]olo*) role="solo" ;;
+      M*|*manager*|*orchestrat*) role="M" ;;
+    esac
     # backfilled records are keyed by the snapshot's anchor, not this process's — write directly
     local out; out=$(jq -n \
-      --arg anchor "$a" --arg pid "$a" --arg role "${role:-}" --arg project "${feat:-}" \
+      --arg anchor "$a" --arg pid "$a" --arg role "${role:-}" --arg project "${proj:-}" \
       --arg repo "${repo:-}" --arg branch "${branch:-}" --arg worktree "${wt:-}" \
       --arg phase "${phase:-}" --arg pr "${pr:-}" --arg next "${next:-}" \
       --arg updated "$(date +%Y-%m-%dT%H:%M:%S%z)" --arg src "backfill" \
