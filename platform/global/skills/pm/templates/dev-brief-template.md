@@ -62,16 +62,22 @@ If your scope grows past **{{loc_estimate}} × 1.5** ({{loc_threshold}}) product
 
 ## Status reporting back to M
 
-Report each PR merge in this exact format so M's `/pm verify` can parse it:
+Report each PR merge in this exact format so M's `/pm verify` can parse it. **Include the full
+PR URL** — M relays it to Mike, who merges from it, and a bare `#number` breaks that chain
+(memory: `always-give-pr-link`):
 
 ```
-{{chunk_id}} merged at #<PR>. {{tests_count}} tests added. Acceptance: {{acceptance_status}}.
+{{chunk_id}} merged at #<PR> (https://github.com/TheLineExp/<repo>/pull/<PR>). {{tests_count}} tests added. Acceptance: {{acceptance_status}}.
 ```
 
 If you hit a blocker, run:
 ```
 /pm blocked {{window_id}} {{chunk_id}} <one-line reason>
 ```
+
+**If you report to Mike directly** (not to M), the reply format is a HARD RULE: recap first, then
+numbered paste-order next steps — spec at `~/.claude/skills/sitrep/FORMAT.md`. The terse
+one-liner above is for M's parser only; it is not a reply to Mike.
 
 ## Hard rules
 

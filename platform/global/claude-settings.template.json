@@ -135,20 +135,47 @@
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "bash ~/.claude/hooks/block-protected-branch.sh" },
-          { "type": "command", "command": "bash ~/.claude/hooks/block-no-verify.sh" },
-          { "type": "command", "command": "bash ~/.claude/hooks/block-destructive-git.sh" },
-          { "type": "command", "command": "bash ~/.claude/hooks/block-gh-merge.sh" },
-          { "type": "command", "command": "bash ~/.claude/hooks/block-rebase-interactive.sh" },
-          { "type": "command", "command": "bash ~/.claude/hooks/block-file-redirect.sh" },
-          { "type": "command", "command": "bash ~/.claude/hooks/check-work-registration.sh" },
-          { "type": "command", "command": "bash ~/.claude/hooks/check-branch-prefix.sh" }
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/block-protected-branch.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/block-no-verify.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/block-destructive-git.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/block-gh-merge.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/block-rebase-interactive.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/block-file-redirect.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/check-work-registration.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/check-branch-prefix.sh"
+          }
         ]
       },
       {
         "matcher": "Edit|Write|MultiEdit|NotebookEdit",
         "hooks": [
-          { "type": "command", "command": "bash ~/.claude/hooks/enforce-worktree.sh" }
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/enforce-worktree.sh"
+          }
         ]
       }
     ],
@@ -156,14 +183,20 @@
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "bash ~/.claude/hooks/check-fix-landed.sh" }
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/check-fix-landed.sh"
+          }
         ]
       }
     ],
     "Stop": [
       {
         "hooks": [
-          { "type": "command", "command": "node ~/.claude/hooks/pr-ready-gate.js" }
+          {
+            "type": "command",
+            "command": "node ~/.claude/hooks/pr-ready-gate.js"
+          }
         ]
       }
     ]
@@ -178,7 +211,7 @@
       "Post-merge git cleanup is pre-approved: `git worktree remove` (incl. --force) / `git worktree prune`, `git branch -d`/`-D`, and `git push origin --delete <branch>` for merged throwaway branches (feature/*, release/*, chore/backmerge*). Protected branches master, main, and staging stay deny-listed (never force-push or remote-delete them). Do not -D a branch that isn't confirmed merged."
     ]
   },
-  "effortLevel": "xhigh",
+  "effortLevel": "max",
   "autoUpdatesChannel": "latest",
   "skipAutoPermissionPrompt": true
 }

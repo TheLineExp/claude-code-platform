@@ -27,10 +27,13 @@ settings. If M answers a dev report with findings and reasoning, he is left with
 do next while the window scrolls on, and the work stalls. This is not a style preference; it is
 the difference between M working and M being noise.
 
-**Required shape, every single time:**
+**Canonical spec — the ONLY full copy — is `~/.claude/skills/sitrep/FORMAT.md`**: required shape,
+the gold-standard worked example (study it), failure modes, and Mike's verbatim instruction.
+**Read it before your first reply in a session**, and change the rule THERE, never here.
+Compressed, so you comply even without the read:
 
 1. **Recap first — always.** A clean, simple statement of *what the project is* and *where we
-   are*. Concise. This opens every reply and every handoff, no exceptions.
+   are*. ≤6 lines. This opens every reply and every handoff, no exceptions.
 2. **Then numbered next steps, in paste order.** "Step 1, Step 2, Step 3." Each one is directly
    actionable — a paste-ready prompt, an exact command, a specific decision. If several
    report-to-M windows need launching, stage them in the exact order he should paste them.
@@ -39,15 +42,18 @@ the difference between M working and M being noise.
    `~/.claude/pm/<project>/` (`status.md`, `reviews/`, `decisions/`, `reports/`). Reference them
    by path. Mike reads them if he wants them; he should never have to wade through them to find
    his next action.
+5. **Every PR carries its full URL** — `https://github.com/TheLineExp/<repo>/pull/<n>`, never a
+   bare `#number` (memory: `always-give-pr-link`). Never merge for him; hand him the `--merge`
+   command, never `--squash` (memory: `never-squash-merge`).
 
 **Self-trigger:** if you're about to open a reply with a finding, a root cause, a "the good news
 is", or any paragraph before the recap — STOP. That's the pattern this rule forbids. Recap, then
 steps.
 
-Mike, 2026-07-16, verbatim: *"when i report back to M, M is supposed to give me the very next
-step. instead i have gotten a ton of crap — no direct responses and no direct instructions… I
-want M to give me clear and concise next steps directly for any report back to M windows. then i
-can act on them before moving to the next things."*
+**A dev report is the most common trigger** — that is exactly when the pull toward "here's what I
+found" is strongest, and exactly when Mike is waiting to act. Recap, then steps.
+
+`/sitrep <project>` renders this shape on demand from the artifacts if you need a starting point.
 
 ## Context discipline (M runs LOW context — this is a hard rule, not a style)
 

@@ -50,10 +50,13 @@ Every grep below is a starting point — tighten it so a match means what you th
    string with a twin.
 
 2. **Sibling call sites.** For each changed symbol/helper: `rg -n "<name>"` across backend AND
-   frontend AND portal/mobile if present. For EVERY consumer, read it and answer: is it
+   frontend AND portal/mobile if present. Triage from the grep line first: read in FULL every
+   DIRECT consumer that plausibly depends on the changed behavior, plus ALL job/cron/webhook/
+   sweep call sites (the historically forgotten ones) — you may skip hits that obviously can't
+   be affected (unrelated module / test scaffolding, identifiable from the grep context) rather
+   than opening each in full. Don't walk consumers-of-consumers. For each you read: is it
    consistent with the new behavior/signature/semantics? Pay special attention to consumers
-   with a NARROWER data selection (e.g. a Prisma `select` that omits a field the helper now
-   reads) and to job/cron/webhook/sweep call sites — they are the historically forgotten ones.
+   with a NARROWER data selection (e.g. a Prisma `select` that omits a field the helper now reads).
 
 2b. **Helper-bypass writers (the blind spot this sweep exists to close).** Step 2 greps the
    symbols the diff CHANGED — it finds consumers of the new helper, but is structurally blind to
@@ -75,9 +78,11 @@ Every grep below is a starting point — tighten it so a match means what you th
           "$HOME/vt/fleetmanager-reservations/backend/src" \
           "$HOME/vt/fleetmanager-vouchers/backend/src"
    ```
-   Read the full function around EVERY hit. Any writer that mutates the guarded model without
-   acquiring the lock / calling the helper is a **BLOCK** — it's the exact bug the lock was
-   added to prevent, still live on a path the diff didn't see.
+   Read the full function around every PRODUCTION hit (you may skip test/fixture hits identifiable
+   from the grep line). Any writer that mutates the guarded model without acquiring the lock /
+   calling the helper is a **BLOCK** — it's the exact bug the lock was added to prevent, still
+   live on a path the diff didn't see. Keep this check thorough — it is a money guardrail; the
+   bound only skips obvious non-production hits, never a real writer.
 
 3. **Twin surfaces.** For each user-visible or route-level change, enumerate the twins and
    check each:
