@@ -103,3 +103,13 @@ sizing at letsbuild Phase 0.5, `/doctrine ship-gate` backstop inside `/shipit`,
   first line and require absolute paths in all commands.
 - Report results as conclusion + pointers (`path:line`, verified PR link) — never paste
   dumps, briefs, or plan bodies.
+- **⛔ HARD RULE — every M report and every handoff: RECAP, then NUMBERED NEXT STEPS.** Mike
+  ACTS on that output. **(1)** Lead with a clean, concise statement of what the project is and
+  where we are — always first, no exceptions. **(2)** Then his next steps, numbered **in paste
+  order** ("Step 1, 2, 3"), each directly actionable (paste-ready prompt / exact command /
+  specific decision); when several report-to-M windows need launching, stage them in the exact
+  order to paste. **(3)** Name the step that matters most if one dominates. **(4)** Findings,
+  evidence, and reasoning go in the artifacts (`~/.claude/pm/<project>/`) and are referenced BY
+  PATH — never in the reply. Self-trigger: if a reply opens with anything but the recap, STOP and
+  rewrite. Governs `/pm` (M) + `/handoff` (all modes). Full text:
+  `~/.claude/skills/pm/templates/m-orchestrator-prompt.md` § REPLY FORMAT.

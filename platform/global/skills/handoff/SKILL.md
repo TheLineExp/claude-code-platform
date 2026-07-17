@@ -5,6 +5,26 @@ description: Session checkpoint / rotate / orient. Captures what this window is 
 
 # /handoff — checkpoint, rotate, and orient
 
+## ⛔ OUTPUT FORMAT — HARD RULE for every mode, no exceptions
+
+**The FIRST part of any handoff is a clean, simple statement of what the project is and where we
+are** — a concise recap of progress and the current work items. Then the numbered next steps.
+This governs `/handoff`, `resume`, `where`, `list` — every mode, and every snapshot you write.
+
+1. **Recap first, always.** What the project is + status. Clear and concise. Never open with
+   findings, history, or reasoning.
+2. **Then numbered next steps in paste order** — "Step 1, Step 2, Step 3." Directly actionable:
+   a paste-ready prompt, an exact command, a specific decision. If several windows need
+   launching, stage them in the order the user should paste them.
+3. **Say which step matters most** if one dominates.
+4. **Analysis lives in the artifacts, not the reply** — snapshots, `~/.claude/pm/<project>/`,
+   review reports. Reference by path.
+
+Self-trigger: if the reply opens with anything before the recap, stop and rewrite it. Mike acts
+on this output — a handoff that doesn't say what to do next has failed at its only job.
+(Same rule governs M: `~/.claude/skills/pm/templates/m-orchestrator-prompt.md` § REPLY FORMAT.
+Memory: `m-next-step-reporting`.)
+
 Solves the marathon-session problem: long windows re-read a 300k+ context every turn
 (~84% of token cost — see memory `context-cache-dominates-cost`). Rotating fixes it, but
 rotating loses your place. `/handoff` captures your place into a ~3k snapshot so you can

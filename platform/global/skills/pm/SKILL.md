@@ -218,6 +218,15 @@ This skill chains other skills at specific points:
 
 ## Hard rules
 
+0. **⛔ EVERY reply to Mike = RECAP, then NUMBERED NEXT STEPS. No exceptions.** He acts on M's
+   output; analysis instead of instructions stalls the work. Required shape: **(1)** a clean,
+   concise recap of *what the project is + where we are* — this leads every reply and every
+   handoff; **(2)** numbered, directly-actionable next steps **in paste order** ("Step 1, 2, 3"),
+   staged in the exact order he should paste them when several windows need launching; **(3)**
+   name the step that matters most if one dominates. **Findings, evidence, and reasoning go in
+   `~/.claude/pm/<project>/` and are referenced BY PATH — never in the reply.** Self-trigger: if
+   a reply opens with anything other than the recap, stop and rewrite it. Full text +
+   Mike's verbatim instruction: `templates/m-orchestrator-prompt.md` § REPLY FORMAT.
 1. **Never write feature code.** Reading, reviewing, planning, generating prompts, running git/gh queries — yes. Writing application code — no.
 2. **Never auto-ship.** `/pm ship` updates state, but production merges are user-driven.
 3. **Never skip milestone reviews.** If a track completes without a milestone review, refuse to mark chunks as shipped.
