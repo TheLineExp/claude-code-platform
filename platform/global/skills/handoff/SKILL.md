@@ -7,11 +7,14 @@ description: Session checkpoint / rotate / orient. Captures what this window is 
 
 ## ⛔ OUTPUT FORMAT — HARD RULE for every mode, no exceptions
 
-**The FIRST part of any handoff is a clean, simple statement of what the project is and where we
-are** — a concise recap of progress and the current work items. Then the numbered next steps.
-This governs `/handoff`, `resume`, `where`, `list` — every mode, and every snapshot you write.
+**Recap first, then numbered paste-order next steps. Nothing else leads.** Governs `/handoff`,
+`resume`, `where`, `list` — every mode, and every snapshot you write.
 
-1. **Recap first, always.** What the project is + status. Clear and concise. Never open with
+**Canonical spec — the ONLY full copy — is `~/.claude/skills/sitrep/FORMAT.md`** (required shape,
+worked example, failure modes, the why). Read it before your first handoff in a session; change
+the rule THERE, never here. Compressed, so you comply even without the read:
+
+1. **Recap first, always.** What the project is + where we are. ≤6 lines. Never open with
    findings, history, or reasoning.
 2. **Then numbered next steps in paste order** — "Step 1, Step 2, Step 3." Directly actionable:
    a paste-ready prompt, an exact command, a specific decision. If several windows need
@@ -19,11 +22,11 @@ This governs `/handoff`, `resume`, `where`, `list` — every mode, and every sna
 3. **Say which step matters most** if one dominates.
 4. **Analysis lives in the artifacts, not the reply** — snapshots, `~/.claude/pm/<project>/`,
    review reports. Reference by path.
+5. **Every PR carries its full URL**, never a bare `#number` (memory: `always-give-pr-link`).
 
 Self-trigger: if the reply opens with anything before the recap, stop and rewrite it. Mike acts
 on this output — a handoff that doesn't say what to do next has failed at its only job.
-(Same rule governs M: `~/.claude/skills/pm/templates/m-orchestrator-prompt.md` § REPLY FORMAT.
-Memory: `m-next-step-reporting`.)
+(Memory: `m-next-step-reporting`.)
 
 Solves the marathon-session problem: long windows re-read a 300k+ context every turn
 (~84% of token cost — see memory `context-cache-dominates-cost`). Rotating fixes it, but
@@ -46,6 +49,11 @@ the narrative, because only this live session knows "we just did X, next is Y, b
    it binds this snapshot to THIS window so resume finds it and not another project's.
    **Write** it to the EXACT path the script printed (it embeds `--a<anchor>-<stamp>`, so it
    never overwrites another window's checkpoint or an earlier one of your own).
+   `gather` also refreshes this window's project record (`~/.claude/windows/a<anchor>.json`)
+   with the current branch/worktree. After you Write the snapshot, run the one-line
+   `window-context.sh write project=… phase=… next=… pr=…` the script prints — that stamps
+   the live situation onto the record so `/sitrep` (and the statusline chip) read it cheaply
+   instead of re-deriving. Fail-open: skip silently if the script isn't present.
 3. Print the snapshot back, then tell the user verbatim:
    > ✅ Checkpoint saved: `<path>`. Now run **`/clear`** (full context reset — the big cache
    > saving), then **`/handoff resume`** to pick up exactly here. Same window, clean context.

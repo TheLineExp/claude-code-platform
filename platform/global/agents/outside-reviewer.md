@@ -62,7 +62,8 @@ and changelog/spec mismatches with the actual diff.
 
 1. `git diff <base>...HEAD --stat`, then the full diff. Base is `origin/staging` unless the
    caller says otherwise.
-2. Read every changed file in full (not just hunks) + the direct callers of changed symbols.
+2. Read every changed file in full (not just hunks) + the DIRECT (one-hop) callers of changed
+   symbols — not the transitive call tree.
 3. Walk the 7 families against the diff. For each: either a finding or a one-line
    "checked: <what you looked at>".
 4. Findings must be REFUTATION-READY: file:line, the exact scenario/interleaving that

@@ -212,11 +212,14 @@ defines what the agents must cover and is the manual fallback if agents are unav
 Optionally use graphify for reverse blast radius if the graph is fresher than HEAD
 (`graphify update . --force` is free).
 
-**RE-REVIEW RULE (fix-the-fix killer):** every time you address review findings (yours,
-Codex's, or Mike's), re-run BOTH agents on the NEW HEAD before pushing the fix round —
-AND re-run **`outside-reviewer`** (Step 4b) on the fix commits: every Codex round today
-receives unreviewed fix commits, which is exactly how one fix PR took 8 external review
-rounds. A fix round is a new diff and gets the full gate before it leaves the machine.
+**RE-REVIEW RULE (cost-scoped 2026-07-17 — the per-round fleet re-run was ~74% of subagent burn):**
+run the heavyweight agents (`parity-sweep`, `money-concurrency-reviewer`, `outside-reviewer`)
+ONCE, on the FINAL HEAD, scoped to the DIFF — do NOT re-run the fleet on every fix round.
+Local fix rounds stay at the source and converge there; **Codex still finds issues across its
+rounds** — that is now the fix-commit safety net, not a pre-emptive local re-run. If the one
+final-head pass flags something, fix it and re-review ONLY that reviewer's own domain on the
+changed lines — never re-run the whole fleet from scratch. Accepted trade (Mike, 2026-07-17):
+a late fix commit may cost one extra Codex round instead of a full local re-sweep every round.
 
 ### Step 1c: Doctrine Ship Backstop (MANDATORY — fast if the plan gate was honored)
 

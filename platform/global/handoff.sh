@@ -19,6 +19,12 @@ SNAP_DIR="$HOME/.claude/handoffs"
 MEMORY="$HOME/.claude/projects/-Users-mikekunz-Documents/memory/MEMORY.md"
 mkdir -p "$SNAP_DIR"
 
+# Shared per-window resolver. The canonical wc_anchor now lives here (handoff.sh no longer
+# keeps a private copy — _window_anchor below delegates to it). Fail-open: if not deployed
+# yet, _window_anchor's inline fallback keeps working, so resume behavior is unchanged.
+WC_SH="$HOME/.claude/window-context.sh"
+[ -f "$WC_SH" ] && . "$WC_SH"
+
 # --- helpers ---------------------------------------------------------------
 
 # Canonical active-work.md files ONLY — one per real repo. Every worktree carries
@@ -46,7 +52,12 @@ _hdr() {
 # two anchors, even when they share a cwd AND branch (e.g. two M windows both on
 # `staging` in the same main checkout — the exact case branch-matching couldn't
 # tell apart). Walk up from the bash subshell to the claude native-binary.
+#
+# Canonical implementation now lives in window-context.sh (wc_anchor); this delegates so
+# handoff and sitrep share ONE identity function. The inline block is a byte-identical
+# fallback for the case where window-context.sh isn't deployed yet.
 _window_anchor() {
+  command -v wc_anchor >/dev/null 2>&1 && { wc_anchor; return; }
   local pid=$PPID cmd np i=0
   while [ "$i" -lt 6 ]; do
     cmd=$(ps -o command= -p "$pid" 2>/dev/null)
@@ -207,6 +218,13 @@ cmd_gather() {
     for f in $cand; do
       [ -f "$f" ] && grep -F "$branch" "$f" 2>/dev/null | sed 's/^/    /'
     done
+
+    # Refresh THIS window's project record with current git location (fail-open; preserves
+    # project/role/phase/next already set — only updates where the window is). Keeps /sitrep
+    # and the statusline chip tracking this window even before the model writes the snapshot.
+    if command -v wc_write >/dev/null 2>&1; then
+      wc_write branch="$branch" worktree="$cwdp" repo="$(basename "$root")" >/dev/null 2>&1 || true
+    fi
   else
     echo "- (not inside a git worktree — capture from conversation + MEMORY only)"
   fi
@@ -252,6 +270,11 @@ cmd_gather() {
   echo "next: <the single next action, imperative>"
   echo "updated: $(date +%Y-%m-%dT%H:%M:%S%z)"
   echo "---"
+  echo
+  echo "AFTER writing the snapshot, stamp the live fields onto this window's project record so"
+  echo "/sitrep and the statusline chip read them without re-deriving (fail-open; one line):"
+  echo "   bash ~/.claude/window-context.sh write project=\"<project-or-feature-slug>\" \\"
+  echo "     role=\"<dev|M|solo>\" phase=\"<phase>\" pr=\"<#N or ->\" next=\"<the next action>\""
   echo
   cat <<'SPEC'
 ## What's being built        (2-3 sentences, the goal + why)

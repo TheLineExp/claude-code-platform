@@ -6,7 +6,7 @@ generated FROM this repo — see docs/AUDIT-2026-07-02.md for why.
 ## Layout
 
 - `platform/global/` — canonical layer synced to `~/.claude`:
-  - `skills/` — doctrine, feature, graphify, handoff, letsbuild, pm, route, shipit, todo, tokens, traceability-review (canonical roster + counts: docs/SKILLS_REFERENCE.md)
+  - `skills/` — doctrine, feature, graphify, handoff, letsbuild, pm, route, shipit, sitrep, todo, tokens, traceability-review (canonical roster + counts: docs/SKILLS_REFERENCE.md)
   - `agents/` — parity-sweep, money-concurrency-reviewer, traceability-reviewer,
     project-evaluator (letsbuild Phase 0.5 sizing gate: every project SOLO vs /pm-default),
     outside-reviewer (shipit Step 4b context-isolated pre-push review, every ship)
@@ -36,7 +36,11 @@ generated FROM this repo — see docs/AUDIT-2026-07-02.md for why.
     silently miss deploy; never blocks), `pr-ready-gate.js` (Stop hook + `verify` CLI: the
     real PR-Ready gate — blocks a "ready/done/shipped" claim about a PR with no fresh
     `gh pr checks`-green + 0-unresolved-threads marker; shipit Step 5b writes the marker),
-    `statusline-command.sh`, `handoff.sh` (engine for the `handoff` skill)
+    `statusline-command.sh`, `handoff.sh` (engine for the `handoff` skill),
+    `window-context.sh` (the ONE shared per-window project resolver: keyed by the claude
+    process anchor, records at `~/.claude/windows/a<pid>.json`; sourced by `sitrep.sh`,
+    `handoff.sh`, and the statusline chip, written by `letsbuild`/`pm`. Fixes `/sitrep`
+    reporting the machine-global `.active-project` instead of THIS window's project.)
   - `claude-CLAUDE.template.md` → `~/.claude/CLAUDE.md`; `claude-settings.template.json` → `~/.claude/settings.json`
   - `graphify-autoquery.js` — retired from deployment; kept in repo only
 - `setup-machine.sh` — the ONLY writer of `~/.claude`. Default = sync (with backup); `--diff` = report drift, no writes

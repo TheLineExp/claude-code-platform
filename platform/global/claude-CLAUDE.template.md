@@ -37,7 +37,7 @@ CLAUDE.mds point here; do not duplicate it.
 
 **Enforcement gates:** `/doctrine plan-gate` BEFORE any code (primary), `project-evaluator`
 sizing at letsbuild Phase 0.5, `/doctrine ship-gate` backstop inside `/shipit`,
-`outside-reviewer` at shipit Step 4b before every push, backlog hook confirms every park.
+`outside-reviewer` at shipit Step 4b (one pass on final head, diff-scoped), backlog hook confirms every park.
 
 ---
 
@@ -52,15 +52,22 @@ sizing at letsbuild Phase 0.5, `/doctrine ship-gate` backstop inside `/shipit`,
 - The `gstack-ship` / `gstack-review` skills are RETIRED. If a request matches a retired
   pathway, use the ones above.
 
-# Review agents — use proactively, not just inside shipit
-- **parity-sweep**: any diff touching payments/refunds/vouchers, state transitions, shared
-  helpers/serializers, auth gates, configs, or concurrency → run it before push AND after
-  every review-fix round (fix rounds create new siblings).
-- **money-concurrency-reviewer**: run on the FINAL HEAD of any money-path change. It reads
-  whole call chains — never judge money code from snippets yourself.
-- **outside-reviewer**: EVERY ship, after commit before push (shipit Step 4b) — context-
-  isolated (gets only diff + spec, never session reasoning); re-run on every fix round
-  before pushing it. Purpose: Codex converges in ≤1 round instead of 4–8.
+# Review agents — ONE pass on final head, scoped to the DIFF (not every fix round)
+- **Frequency + scope (all three):** run ONCE, on the FINAL HEAD, against the DIFF (changed
+  surface + its direct sibling call sites) — NOT the full context, and NOT after every
+  review-fix round. Local fix rounds stay at the source and converge there; the fleet does
+  NOT re-fire per round. If the one final-head pass surfaces an issue, fix it and re-review
+  ONLY that reviewer's own domain on the changed lines — never re-run the whole fleet from
+  scratch. (Cost fix 2026-07-17: the per-fix-round fleet re-run was ~74% of subagent burn.)
+- **parity-sweep**: diffs touching payments/refunds/vouchers, state transitions, shared
+  helpers/serializers, auth gates, configs, or concurrency → one pass on final head over the
+  diff + its sibling call sites.
+- **money-concurrency-reviewer**: one pass on the FINAL HEAD of a money-path change. KEEP its
+  whole-call-chain reading for the money paths IN THE DIFF — never judge money code from a
+  snippet; this is the P1 guardrail — but it runs once, not per round.
+- **outside-reviewer / Codex**: one pass on final head (shipit Step 4b), context-isolated
+  (diff + spec only). Codex still finds the issues — it just runs once, on the diff, before
+  push, not on every fix round. Purpose: Codex converges in ≤1 round instead of 4–8.
 
 # "Done" means verified — never report otherwise
 - Before saying a PR is ready/shipped/done, check LIVE state at that moment:
@@ -89,6 +96,13 @@ sizing at letsbuild Phase 0.5, `/doctrine ship-gate` backstop inside `/shipit`,
   `gh run watch`), log scraping, single-fact lookups, PR-thread status reads.
 - Built-in `Explore`/`general-purpose` INHERIT Opus unless you pass `model` — always pass
   `sonnet` (sweeps) or `haiku` (single lookups). Details/nudges: `/route`.
+- **Subagent bounds (2026-07-17 cost fix — subagent runs were a median 76 turns / 5.3M tokens,
+  max 90M):** a search/read offload (`Explore`, `general-purpose`) must be TIGHTLY scoped and
+  SHORT (~5–15 tool calls) — hand it the file/symbol/diff, not an open-ended hunt; needing 50+
+  reads means it was mis-scoped, so split it into targeted lookups. **Runaway backstop:** ANY
+  subagent (reviewers included) past ~200 tool calls is almost certainly LOOPING — stop, report
+  what you have, and LOUDLY flag that you hit the ceiling so the caller can re-scope; never
+  silently truncate a money review.
 
 # graphify — optional aid, never a gate
 - Use `/graphify` queries when a fresh graph exists; a graph older than HEAD lies — refresh
@@ -97,19 +111,29 @@ sizing at letsbuild Phase 0.5, `/doctrine ship-gate` backstop inside `/shipit`,
 # Session & context discipline
 - **One feature per session.** After `/shipit` completes (or a feature is verified), END the
   session and start the next task fresh — marathon sessions burn context and hit compaction.
+- **Keep the main thread lean (2026-07-17 — main ran at ~227k context/turn, half of it re-read
+  file/command output).** Big reads (whole files, long logs, broad greps) go to a CHEAP scoped
+  subagent that returns only the conclusion — NOT into the main context, where every later turn
+  re-reads them. Compact/rotate at every feature boundary and any time context passes ~150k;
+  don't let a window marathon.
 - **Quote every path** — `"Volo Technologies"` contains a space; the `~/vt` symlink points
   there, prefer it in commands.
 - **Subagent prompts** must state the absolute working directory (worktree root) on the
   first line and require absolute paths in all commands.
 - Report results as conclusion + pointers (`path:line`, verified PR link) — never paste
   dumps, briefs, or plan bodies.
-- **⛔ HARD RULE — every M report and every handoff: RECAP, then NUMBERED NEXT STEPS.** Mike
-  ACTS on that output. **(1)** Lead with a clean, concise statement of what the project is and
-  where we are — always first, no exceptions. **(2)** Then his next steps, numbered **in paste
-  order** ("Step 1, 2, 3"), each directly actionable (paste-ready prompt / exact command /
+- **⛔ HARD RULE — every M report, every handoff, every sitrep: RECAP, then NUMBERED NEXT STEPS.**
+  Mike ACTS on that output. **(1)** Lead with a clean, concise statement of what the project is
+  and where we are — always first, no exceptions. **(2)** Then his next steps, numbered **in
+  paste order** ("Step 1, 2, 3"), each directly actionable (paste-ready prompt / exact command /
   specific decision); when several report-to-M windows need launching, stage them in the exact
   order to paste. **(3)** Name the step that matters most if one dominates. **(4)** Findings,
   evidence, and reasoning go in the artifacts (`~/.claude/pm/<project>/`) and are referenced BY
-  PATH — never in the reply. Self-trigger: if a reply opens with anything but the recap, STOP and
-  rewrite. Governs `/pm` (M) + `/handoff` (all modes). Full text:
-  `~/.claude/skills/pm/templates/m-orchestrator-prompt.md` § REPLY FORMAT.
+  PATH — never in the reply. **(5)** Every PR carries its full clickable URL, never a bare
+  `#number`. Self-trigger: if a reply opens with anything but the recap, STOP and rewrite.
+  Governs `/pm` (M — every subcommand's OUTPUT, not just chat replies) + `/handoff` (all modes)
+  + `/sitrep`. **Canonical full text — the ONLY copy, with the gold-standard worked example:
+  `~/.claude/skills/sitrep/FORMAT.md`.** Change the rule THERE; all other mentions point to it.
+- **`/sitrep` = that report on demand — any window, any project, read-only.** `/sitrep` (active),
+  `/sitrep <project>` (PM or memory-tracked: `/sitrep w114`), `/sitrep all`, `/sitrep prs` (open
+  PRs everywhere + merge URLs). Use it whenever asked "where are we / what's next / status".

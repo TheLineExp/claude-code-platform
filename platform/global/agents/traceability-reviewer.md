@@ -234,7 +234,7 @@ After tracing individual chains, verify:
 
 ## Important Rules
 
-1. **Be exhaustive** — trace EVERY action, not just the obvious ones. Check dropdown changes, filter selections, pagination, sort toggles — anything that triggers an API call.
+1. **Be exhaustive WITHIN THE DIFF's blast radius** — trace every action the changed code affects (changed components/routes/services + their direct callers), not every action in the app. Within that scope don't skip the non-obvious ones — dropdown changes, filter selections, pagination, sort toggles. If nothing in the diff touches a flow, don't trace it (2026-07-17 cost bound).
 2. **Read actual code** — don't assume based on naming. Read the function body to see what's actually called.
 3. **Check the right repos** — for reservations flows the UI and API client are in FM V3 and the routes/services/DB are in the reservations repo; for **voucher-portal flows the whole chain (portal UI → `portal/src/api` → backend routes/services → Prisma) is inside `~/vt/fleetmanager-vouchers`**. Don't cross-wire them.
 4. **Verify the Prisma schema** — always check `backend/prisma/schema.prisma` for field names, types, relations, and enums.

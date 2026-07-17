@@ -21,9 +21,14 @@ interleaving or input that triggers it.
    function in the diff that reads or writes money state (amounts, balances, paymentStatus,
    refunds, PaymentIntents, vouchers, idempotency keys) or shared mutable state.
 
-2. **Load whole chains.** For each such function, read the COMPLETE function plus every
-   caller and every callee that touches the same rows — including webhooks, retry sweeps,
-   cron jobs, and kiosk/terminal paths. Build the actual set of writers to each row/field.
+2. **Load the money chains — bounded to the diff's money surface.** For each money-touching
+   function IN THE DIFF, read the COMPLETE function plus its DIRECT (one-hop) callers and
+   callees that touch the same rows — including webhooks, retry sweeps, cron jobs, and
+   kiosk/terminal paths on those rows. Build the set of writers to each row/field the diff
+   touches. Keep FULL depth on the money rows the diff changes — that is where the P1s hide —
+   but do NOT walk the whole codebase or expand hop-by-hop into non-money code; if a one-hop
+   neighbor itself mutates the same money row, follow THAT and stop there. Past ~200 reads
+   you're spelunking too far — stop and flag the cap (2026-07-17 cost bound).
 
 3. **Hunt these specific families** (each has recurred ≥4 times in the last two weeks):
    - **TOCTOU / read-before-lock:** any value read before a lock/transaction/CAS and used

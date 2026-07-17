@@ -36,16 +36,28 @@ if [[ -f "roster.md" ]]; then
 fi
 
 # Recent events
+# NOTE: the event-kind key is `event`, NOT `type`. This grepped "type" and silently
+# rendered every event as blank/? since inception. Use jq — the rows carry free-text
+# notes with quotes and braces that regex-scraping mangles.
 if [[ -f "roster-events.jsonl" ]]; then
     echo "## Recent Events (last 20)"
     echo
-    tail -20 roster-events.jsonl 2>/dev/null | while IFS= read -r line; do
-        ts=$(echo "$line" | grep -oE '"ts":"[^"]*"' | cut -d'"' -f4)
-        type=$(echo "$line" | grep -oE '"type":"[^"]*"' | cut -d'"' -f4)
-        window=$(echo "$line" | grep -oE '"window":"[^"]*"' | cut -d'"' -f4)
-        chunk=$(echo "$line" | grep -oE '"chunk":"[^"]*"' | cut -d'"' -f4)
-        echo "- \`$ts\` $type | window=$window chunk=$chunk"
-    done
+    if command -v jq >/dev/null 2>&1; then
+        tail -20 roster-events.jsonl 2>/dev/null | jq -r '
+            # .pr is polymorphic: number, qualified string ("org/repo#1299"), or array.
+            def prfmt: if type == "array" then (map(tostring) | join(", "))
+                       elif type == "number" then "#\(.)"
+                       else tostring end;
+            # timestamp key is `ts` on most rows, `date` on ~194 others (both used).
+            "- `\(.ts // .date // "?")` \(.event // "?")"
+            + " | window=\(.window // "-")"
+            + " | chunk=\(.chunk // "-")"
+            + (if .pr      then " | pr=\(.pr | prfmt)"   else "" end)
+            + (if .verdict then " | verdict=\(.verdict)" else "" end)
+        ' 2>/dev/null || tail -20 roster-events.jsonl
+    else
+        tail -20 roster-events.jsonl
+    fi
     echo
 fi
 

@@ -301,6 +301,29 @@ for REPO_PATH in <list of affected repo paths>; do
 done
 ```
 
+**Step 4b: Write the per-window project record** — so THIS window's `/sitrep` reports the
+right project (not the machine-global `.active-project`) and its statusline shows the chip.
+A repo worked in the MAIN CHECKOUT is this same window → `write` (anchor record). A repo with
+its own WORKTREE opens in a NEW window later → `seed` it by worktree so that window shows the
+project on its first render, before it checkpoints. (`window-context.sh` fail-opens if absent.)
+
+```bash
+WC="$HOME/.claude/window-context.sh"
+SLUG="<feature-name>"   # same kebab used in the branch
+if [ -f "$WC" ]; then
+  for REPO_PATH in <list of affected repo paths>; do
+    REPO_NAME=$(basename "$REPO_PATH")
+    if [ -d "$WORKTREE_PATH_FOR_REPO" ]; then          # dev opens elsewhere → seed
+      bash "$WC" seed worktree="$WORKTREE_PATH_FOR_REPO" project="$SLUG" chunk="-" \
+        role=dev repo="$REPO_NAME" branch="$BRANCH" base=staging
+    else                                                # this window → anchor record
+      bash "$WC" write project="$SLUG" chunk="-" role=solo repo="$REPO_NAME" \
+        branch="$BRANCH" worktree="$REPO_PATH" base=staging
+    fi
+  done
+fi
+```
+
 **Step 5: Push all branches**
 
 ```bash
@@ -397,6 +420,13 @@ DATE=$(date +%Y-%m-%d)
 ROW="| $WINDOW_ID | $BRANCH | ../${REPO_NAME}-${WINDOW_ID} | <area description> | $DATE |"
 echo "$ROW" >> .claude/active-work.md
 cp .claude/active-work.md "$WORKTREE_PATH/.claude/active-work.md"
+
+# Per-window project record: the dev window opens in the WORKTREE (a new claude process),
+# so SEED it by worktree — that window's first /sitrep + statusline chip resolve the project
+# before it checkpoints its own anchor record (which then supersedes the seed). Fail-open.
+WC="$HOME/.claude/window-context.sh"
+[ -f "$WC" ] && bash "$WC" seed worktree="$WORKTREE_PATH" project="<feature-name>" \
+  chunk="-" role=dev repo="$REPO_NAME" branch="$BRANCH" base=staging
 ```
 
 **Step 6: Push and verify**
@@ -453,6 +483,13 @@ echo "s" > .claude/window-id
 DATE=$(date +%Y-%m-%d)
 ROW="| s | $BRANCH | (main checkout) | <description> | $DATE |"
 echo "$ROW" >> .claude/active-work.md
+
+# Per-window project record — solo mode works in THIS window, so write the anchor record
+# directly. Makes /sitrep (no arg) report this project and the statusline show the chip.
+WC="$HOME/.claude/window-context.sh"
+[ -f "$WC" ] && bash "$WC" write project="$SLUG" chunk="-" role=solo \
+  repo="$(basename "$(git rev-parse --show-toplevel)")" branch="$BRANCH" \
+  worktree="$(git rev-parse --show-toplevel)" base=staging
 ```
 
 **Step 5: Push**

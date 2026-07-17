@@ -118,6 +118,7 @@ declare -a SRC_FILES=( \
   "$GLOBAL_SRC/pr-ready-gate.js" \
   "$GLOBAL_SRC/statusline-command.sh" \
   "$GLOBAL_SRC/handoff.sh" \
+  "$GLOBAL_SRC/window-context.sh" \
   "$GLOBAL_SRC/token-split.sh" \
 )
 declare -a LIVE_FILES=( \
@@ -128,6 +129,7 @@ declare -a LIVE_FILES=( \
   "$CLAUDE_HOME/hooks/pr-ready-gate.js" \
   "$CLAUDE_HOME/statusline-command.sh" \
   "$CLAUDE_HOME/handoff.sh" \
+  "$CLAUDE_HOME/window-context.sh" \
   "$CLAUDE_HOME/token-split.sh" \
 )
 
@@ -296,6 +298,9 @@ chmod +x "$CLAUDE_HOME/statusline-command.sh"
 
 # Make the handoff engine executable
 chmod +x "$CLAUDE_HOME/handoff.sh"
+
+# Make the window-context resolver executable (sourced by sitrep/handoff/statusline; also a CLI)
+chmod +x "$CLAUDE_HOME/window-context.sh"
 
 # Remove retired file
 RETIRED="$CLAUDE_HOME/hooks/graphify-autoquery.js"
