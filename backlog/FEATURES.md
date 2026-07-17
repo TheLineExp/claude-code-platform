@@ -18,11 +18,35 @@ _Migrated from `fleetmanager-reservations/docs/FEATURE_REQUESTS.md` on 2026-06-1
 - Add with `/feature add <description>` (size-checked — small/defined work goes to `/todo`).
 - Every request carries a **Repo(s)/area** tag so the cross-repo list stays scannable.
 - `/feature review` re-prioritizes and checks whether items should move to a repo's `MASTER_PLAN.md` or down to `/todo`.
-- FR IDs are a single shared sequence across all repos. Next free ID: **FR-066**.
+- FR IDs are a single shared sequence across all repos. Next free ID: **FR-068**.
 
 ---
 
 ## Open Requests
+
+### FR-066: Public booking cart — server-quote the cart (kill the client price mirror)
+- **Repo(s)/area**: reservations — backend (new public cart-quote endpoint) + frontend (public booking cart consumes it; delete the client mirror)
+- **Status**: open (Mike parked to the backlog 2026-07-17; was the named "next project")
+- **Priority**: **high** — this mirror is the GENERATOR behind the 2026-07-15 prod incident (cart showed $0, server charged $49.64). D2 (shipped in #1567) CONTAINS it — a stale/divergent cart now 409s `VOUCHER_DID_NOT_APPLY` instead of mischarging — so it currently presents as a wrong *display*, not lost money. The generator is still live.
+- **Problem**: the booking cart displays a **client-side prediction** of a price only the server can compute. The client mirror kept missing server dimensions, one per review round — rule tier → quoting unit → model scope → type+size scope → **unit count**. Not typos; structural. (Author's round-4 zoom-out, doctrine rule 3.)
+- **Root fix** (named by `outside-reviewer`): a server cart-quote endpoint — **POST selections → server returns per-line prices via `resolveSelections` + `_calculatePricing`**, i.e. the SAME code that computes the actual charge. One code path, zero drift. Needs NO `modelPriceKey`, NO `ruleSource` skip, NO new availability fields. **Revert `backend/src/routes/public.js:3506-3515`** — the field export that institutionalizes the mirror.
+- **Start here, do NOT re-derive**: the full diagnosis is preserved as a comment on [reservations#1572](https://github.com/TheLineExp/fleetmanager-reservations/pull/1572).
+- **Live state / hazards**: #1572 is **MERGED to staging** carrying 2 live P1s. **P1.1** — fleet hasn't priced a (bikeType, tier) → `public.js:3530-3544` drops the `byTypeSize` entry, `byBikeId` lacks those bikes → all 4 mirror rungs miss → the line **keeps the abandoned half-day price** (Mike's exact repro, unfixed); `frontend/src/__tests__/hooks/cartReprice.test.js:414` **asserts the broken behavior as correct**. **P1.2** — 2 riders same model, 1 unit free → client shows **$70**, server charges **$85** (`resolveSelections` dedups `assignedIds` across lines; the mirror only records existence) — `useBookingWizard.js:816`. 🚨 **Do NOT promote #1572's cart half to prod until the server-quote replaces it** — on staging P1.2 is an annoyance; on prod it's a customer charged more than the cart showed.
+- **Also open on #1572 (P2)**: concierge parity gap (no `useCartQuote` there), location-blind price keys, rung order contradicts the server (`bikeId` vs `bikeIdForPrice`), tests never cover the dispatch path.
+- **Phase-fit**: multi-PR; will divert `/letsbuild` → `/pm`. Money-path → `money-concurrency-reviewer` on final HEAD.
+- **Requested**: 2026-07-17
+
+### FR-067: Cap voucher issuer liability at face value (covered path is uncapped)
+- **Repo(s)/area**: reservations (`voucherService` / `reservationService` pricing + discount) + vouchers (`offeringService` offer constraints)
+- **Status**: open (Mike parked to the backlog 2026-07-17)
+- **Priority**: **high — MONEY, live on prod today.** Pre-existing; found by `money-concurrency-reviewer` during w139 (2026-07-16), NOT introduced by it.
+- **Problem**: the **covered** path returns `-subtotal` **UNCAPPED** (`backend/src/services/voucherService.js:217-219`, `calculateDiscount`, for `rental`/`full` passes) while the **upgrade** path caps at face value (`backend/src/services/reservationService.js:14344-14345`, `-Math.min(faceValue, subtotal)`). `discountApplied` (`reservationService.js:5559`) is what the **issuer** is billed → the issuer pays whatever length the customer picks. `offeringService.js:305` (vouchers) imposes no cardinality cap on `applicableTiers` either.
+- **Concrete live case**: on an early-close override day the full_day pill is dropped (`DatesSection.jsx:322-324`), so a **`full_day`-ONLY** pass pre-selects **`multi_day`** → issuer billed `fullDay + (N-1)×perAdditionalDay` (N defaults to 2), uncapped, customer $0.
+- **⚠️ COUNTERINTUITIVE — constraining offers to ONE tier does NOT close this.** `LEGACY_TO_TIER` is many-to-one (`multi_day → full_day`), so a **single-tier** `['full_day']` offer ALREADY covers `multi_day`. Offer-cardinality rules alone leave the hole open.
+- **Root fix (needs Mike's product decision)**: cap issuer liability at face value on the covered path (making both paths symmetric), **OR** stop treating `multi_day` as covered by a `full_day` offer. Pick one; don't patch the call site.
+- **Mike's framing (2026-07-16)**: "Voucher gets charged to issuer at the cost of the chosen length if there is more than one in the offer...which should not be the case. i dont think we specified a variable offer (bike type and location are variable)."
+- **Phase-fit**: money-path; needs a product decision before design. `money-concurrency-reviewer` on final HEAD. Related: w139's pinned `PASS_DEFAULT_PRIORITY` prevents the *picker* from moving a pass's tier, but does NOT cap what the issuer pays.
+- **Requested**: 2026-07-17
 
 ### FR-064: Bike Catalog — per-type descriptions + home-location matching + attached reviews/blogs (SEO/AI content layer on SSR)
 - **Repo(s)/area**: cross-repo — reservations (public SSR catalog pages + content model + Schema.org Product/Review/BlogPosting + sitemap entries) + FM V3 (bike-type description/content admin + home-location mapping) · **content layer that sits ON the FR-063 SSR foundation**
