@@ -51,8 +51,14 @@ Set up a new project.
 4. For each chunk, generate `briefs/chunk-<id>.md` from the template at `~/.claude/skills/pm/templates/dev-brief-template.md`, filling in chunk title, owning track, dependencies, files-owned, files-not-owned, decisions inherited, acceptance criteria, and the standing report-back protocol.
 5. Initialize `status.md` with one row per chunk (all `pending`).
 6. Initialize empty `roster.md` and `roster-events.jsonl`.
-7. Write `~/.claude/pm/.active-project` with the project name.
-8. Output a summary table of chunks parsed, briefs generated, and the M-orchestrator prompt path so the user can paste it into this window's role.
+7. Write `~/.claude/pm/.active-project` with the project name. (This global pointer is for `/pm`'s own subcommands — hard rule 7. It is NOT any window's `/sitrep` project; that comes from the per-window record below.)
+8. **Register THIS window as M for the project** so its own `/sitrep` (no arg) resolves to the project and its statusline shows the chip. This window becomes M and has no worktree, so write an anchor record keyed to this claude process (fail-open if `window-context.sh` is absent):
+   ```bash
+   WC="$HOME/.claude/window-context.sh"
+   [ -f "$WC" ] && bash "$WC" write project="<project-name>" role=M chunk="-" \
+     repo="-" branch="-" worktree="$PWD"
+   ```
+9. Output a summary table of chunks parsed, briefs generated, and the M-orchestrator prompt path so the user can paste it into this window's role.
 
 **Refuse** to overwrite an existing project unless `--force` is passed.
 
@@ -74,9 +80,11 @@ Run scripts at `~/.claude/skills/pm/scripts/sweep.sh` for the heavy lifting.
 
 **Default: output a ONE-LINE handoff pointer, NOT the brief body.** The brief file at `~/.claude/pm/<active-project>/briefs/chunk-<id>.md` already holds the full scope (files-owned, must-not-touch, ground-before-write, acceptance, workflow); the dev window reads it off disk. Dumping the whole block is what the user explicitly does NOT want. Emit exactly this line, filling `<window>`/`<title>` from the master-plan chunk row and `<project>` from `.active-project`:
 
-> Working dir: `<absolute-worktree-path>` (quote it in every command — it contains a space). You are Dev-`<window>` on PM project `<project>`. Read your brief at `~/.claude/pm/<project>/briefs/chunk-<id>.md` and the master plan at `~/.claude/pm/<project>/master-plan.md`, then execute chunk `<id>` (`<title>`). Report back to M when merged.
+> Working dir: `<absolute-worktree-path>` (quote it in every command — it contains a space). You are Dev-`<window>` on PM project `<project>`. First register this window: `bash ~/.claude/window-context.sh write project="<project>" chunk="<id>" role=dev worktree="<absolute-worktree-path>"` (so your `/sitrep` resolves to this project). Then read your brief at `~/.claude/pm/<project>/briefs/chunk-<id>.md` and the master plan at `~/.claude/pm/<project>/master-plan.md`, and execute chunk `<id>` (`<title>`). Report back to M when merged.
 
 Only print the full brief body if the user passes `--full` (`/pm brief <id> --full`). If the brief file doesn't exist yet, generate it from the template first, then emit the one-liner.
+
+Why the register line: the dev window's `/letsbuild` seeds a record under the *branch* slug, which won't equal the PM project slug — stamping `project=<project> chunk=<id>` here makes that window's `/sitrep` resolve to the PM project dir and its statusline chip read `project:chunk`. It writes the window's own anchor record, which supersedes the letsbuild seed.
 
 **Hard rules for every dev-window handoff (applies to `/pm brief` AND `/pm route`):**
 - Dev-window handoff prompts are ONE LINE — a pointer to the brief file, never the brief body.
@@ -89,6 +97,8 @@ Generate a handoff prompt for an existing window moving from one chunk to the ne
 - Dependencies confirmed met
 - File-collision check vs other active windows
 - Decisions/changes that have happened since the dev started
+- A re-register line so that window's `/sitrep`/chip track the NEW chunk:
+  `bash ~/.claude/window-context.sh write chunk="<next-id>"` (run in the dev window; keeps its project, updates the chunk).
 
 ### `/pm verify <pr-number> [<repo>]`
 
@@ -101,15 +111,25 @@ Confirm a PR has merged on `origin/staging` (or `origin/main`/`origin/master` pe
 
 ### `/pm status`
 
-Live roll-up. Pull data from `status.md` + GH (`gh pr list`) + the roster. Output a markdown report:
-- Per-track summary (chunks done / chunks remaining / blocking)
+Live roll-up. Pull data from `status.md` + GH (`gh pr list`) + the roster.
+
+**The split is the point — and Hard Rule 0 governs the reply, not just the artifact:**
+
+**The ARTIFACT** → `reports/<YYYY-MM-DD>-status.md`. The full roll-up lives here, so you can
+compare day-over-day. Everything below goes in the FILE:
+- Per-track summary (chunks done / remaining / blocking)
 - Active windows + their current chunk
-- Open PRs across all repos
+- Open PRs across all repos (each with its full URL)
 - Blockers raised in the last 24h
 - Pending acceptance reviews
-- Pending decisions waiting on user
+- Pending decisions waiting on Mike
 
-Save the report to `reports/<YYYY-MM-DD>-status.md` so you can compare day-over-day.
+**The REPLY** → recap, then numbered paste-order next steps, per
+`~/.claude/skills/sitrep/FORMAT.md`. Reference the report BY PATH. **Never dump the roll-up
+into the reply** — a wall of tables with no next action is precisely the failure Hard Rule 0
+exists to prevent.
+
+`/sitrep` renders the same shape read-only from any window (it does not write a report).
 
 ### `/pm roster`
 
@@ -223,10 +243,14 @@ This skill chains other skills at specific points:
    concise recap of *what the project is + where we are* — this leads every reply and every
    handoff; **(2)** numbered, directly-actionable next steps **in paste order** ("Step 1, 2, 3"),
    staged in the exact order he should paste them when several windows need launching; **(3)**
-   name the step that matters most if one dominates. **Findings, evidence, and reasoning go in
+   name the step that matters most if one dominates; **(4)** every PR carries its full clickable
+   URL, never a bare `#number`. **Findings, evidence, and reasoning go in
    `~/.claude/pm/<project>/` and are referenced BY PATH — never in the reply.** Self-trigger: if
-   a reply opens with anything other than the recap, stop and rewrite it. Full text +
-   Mike's verbatim instruction: `templates/m-orchestrator-prompt.md` § REPLY FORMAT.
+   a reply opens with anything other than the recap, stop and rewrite it.
+   **Canonical spec (the ONLY full copy) — read it before your first reply in a session:
+   `~/.claude/skills/sitrep/FORMAT.md`.** Change the rule there, never here.
+   This governs `/pm status`, `/pm brief`, `/pm route`, `/pm blocked`, `/pm verify`, `/pm
+   milestone` — every subcommand's OUTPUT, not just conversational replies.
 1. **Never write feature code.** Reading, reviewing, planning, generating prompts, running git/gh queries — yes. Writing application code — no.
 2. **Never auto-ship.** `/pm ship` updates state, but production merges are user-driven.
 3. **Never skip milestone reviews.** If a track completes without a milestone review, refuse to mark chunks as shipped.

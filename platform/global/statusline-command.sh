@@ -38,6 +38,18 @@ if [ -n "$branch" ] && [ "$branch" != "HEAD" ]; then
   fi
 fi
 
+# Project chip — THIS window's registered project[:chunk], so the window advertises what
+# it's building at a glance. Fail-open by design: missing script / no record / any error →
+# empty, and the chip is simply absent (never an error, never a stall). Tier-1 only (reads
+# this window's own anchor record); no gh, no extra git — cheap enough for every render.
+WC_SH="$HOME/.claude/window-context.sh"
+if [ -f "$WC_SH" ]; then
+  proj_chip=$(bash "$WC_SH" chip 2>/dev/null)
+  if [ -n "$proj_chip" ]; then
+    parts+=("$(printf '\033[0;32m⊳%s\033[0m' "$proj_chip")")
+  fi
+fi
+
 # Agent name (if running under --agent)
 if [ -n "$agent_name" ]; then
   parts+=("$(printf '\033[0;35magent:%s\033[0m' "$agent_name")")

@@ -1,3 +1,3 @@
 | Window | Branch | Worktree Path | Area | Started |
 |--------|--------|---------------|------|---------|
-| b6 | feature/b6-pr-ready-bare-ref-repo-scope | ../claude-code-platform-b6 | Theme E: pr-ready-gate bare-#N cross-repo false-PASS (Dev-B6) | 2026-07-08 |
+| s | feature/s-per-window-project-context | (main checkout) | Per-window project context: shared window-context.sh resolver (anchor-keyed) fixing /sitrep wrong-project + token cost; wires sitrep/statusline/letsbuild/pm/handoff | 2026-07-17 |
