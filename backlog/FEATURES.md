@@ -18,7 +18,7 @@ _Migrated from `fleetmanager-reservations/docs/FEATURE_REQUESTS.md` on 2026-06-1
 - Add with `/feature add <description>` (size-checked — small/defined work goes to `/todo`).
 - Every request carries a **Repo(s)/area** tag so the cross-repo list stays scannable.
 - `/feature review` re-prioritizes and checks whether items should move to a repo's `MASTER_PLAN.md` or down to `/todo`.
-- FR IDs are a single shared sequence across all repos. Next free ID: **FR-065**.
+- FR IDs are a single shared sequence across all repos. Next free ID: **FR-066**.
 
 ---
 
@@ -348,6 +348,32 @@ _Migrated from `fleetmanager-reservations/docs/FEATURE_REQUESTS.md` on 2026-06-1
 - **Requested**: 2026-02-25
 - **Description**: Fork FleetManager into a **Gear Manager** for any outdoor gear (ski/kayak/camping/surf/snowboard/e-scooter). Core fleet/inventory/reservation/booking engine stays; generalize "bike" → "gear item" with configurable gear types, flexible per-category attributes, generalized sizing/fit, category-aware maintenance, gear-agnostic booking, multi-category fleets.
 - **Notes**: lower priority / longer term — FM must be solid first. Product fork, not a feature. Two approaches: (A) fork FM, replace bike-specific code; (B) refactor FM itself gear-agnostic (cleaner long-term, riskier). The Reservations plugin is already fairly gear-agnostic. Could be a separate SaaS tier.
+
+### FR-065: Reservations — pre-existing money + window-bucketing latent bugs (3 root causes, not call-site patches)
+- **Repo(s)/area**: reservations (primary) + FM V3 (the bucketing half of the setup-prep worklist) · cross-repo
+- **Status**: open (parked 2026-07-16 — Mike explicitly chose to park ALL of these to close down the `mid-rental-edit-in-progress` workstream)
+- **Priority**: medium — **contains 3 MONEY items**, but every one is **pre-existing and latent** (none introduced by the mid-rental-edit work, none blocking its ship, zero reported customer incidents to date). Raise to high if any surfaces live.
+- **Phase-fit**: new scoping pass. Three of these are **shared-helper extractions** — that's what makes this a feature-sized project rather than a `/todo` batch: patching the call sites is what keeps regenerating these findings.
+- **Requested**: 2026-07-16
+- **Source**: surfaced by the `track-f-complete` milestone reviews (money-concurrency + parity-sweep) during the mid-rental-edit program, 2026-07-15/16. Evidence: `~/.claude/pm/mid-rental-edit-in-progress/reviews/milestone-track-f-complete-{money,parity}.md` and `-{money,parity}-rerun.md`.
+- **Description**: Successive adversarial sweeps kept re-surfacing the same three defect *families*. Each family's root cause is a **missing or under-specified shared guard**, so every fix at a call site leaves siblings live and the next sweep finds them again. This FR is to fix the three roots once, then adopt them everywhere.
+
+  **① Billed-vs-physical window bucketing has no shared helper.** F3 (#1570) wrote an `effectivePickupInstant` helper **local to `dailyRosterService.js`**; every other consumer still re-derives (or forgets) the `COALESCE(physicalStartTime, startTime)` rule. Known stragglers: `reservation/scheduling.js:460-556` (`getLocationSummary`/`getLocationSummaries` → FM V3 Locations dashboard `pickupsToday`/`returnsToday`), `reservation/listing.js:~604-673` (`getDashboardCounts` badge chips). Also the **setup-prep worklist**, which needs a **cross-repo** fix — a reservations-side change alone is a **no-op** because both FM V3 callers hard-code `days=30` (`integrations.js:478`, `bikeService.js:413/433`, `reservationUtils.js:80`); the real narrowing is FM V3 re-bucketing on the billed start. **Root fix: extract the helper to a shared module + adopt at every consumer, both repos.** (An earlier framing of this worklist — "days=1 misses tonight's pickup" — was investigated and proven a **no-op with no reachable caller**; re-verify the premise before building.)
+
+  **② CAS key is under-specified [MONEY].** `_commitRepricedTotalCas` keys on `totalAmount` **only**, and no `paymentStatus` writer touches `totalAmount` — so a capture landing mid-reprice passes the CAS unchanged. `selfService.js:1211→:1668→:1772/:1779`: **$200 captured / $150 written / no refund.** Fix is one line on each CAS site (`paymentStatus: reservation.paymentStatus` in the `where`), but the real lesson is that the *guard* is under-specified — same class as F1's non-exhaustive writer list, one level up.
+
+  **③ Overlap checks bypass the shared helper.** `reservation/edit.js:2607-2631` — `rescheduleReservation`'s in-tx race-window bike-conflict recheck hand-rolls its own `startTime`-only OR instead of using `availabilityService.holdOverlapOR` → narrow but real **double-booking hole** for a concurrent early-pickup hold. **Root fix: every overlap check goes through the shared helper.**
+
+- **Also in scope (smaller, same sweep)**:
+  - **[MONEY]** `/refund` full-refund over-collect vector — a non-E1 full refund via `/refund` does **not** reduce `totalAmount`, so a payment link can over-collect. (This is the vector the `SETTLED_PAYMENT_STATUSES += 'refunded'` band-aid was reverted out of E1 for — it belongs here, fixed properly with its own money-reviewer pass.)
+  - `reservation/settlement.js:527-540` — the increment fallback composes additive fields but applies `_priceOverrideClearFields()` **absolutely**, so an override landing inside the recompute window leaves its dollars baked in with no marker → silent clawback next reprice. The already-fixed shape exists at `edit.js:2199-2205` (add-bike path) — copy it.
+  - Legacy `POST /:id/reschedule` **free-extend twin** — never reprices (extends the window for free) and **nulls `physicalStartTime`** on active. Not reachable from current FM V3 (callers preserve duration), so no live loss — but note **two independent reviewers found two different defects in this same path** (this + ③), which argues for hardening it as one unit.
+  - C1 `priceAction:'keep'` accepted on an **active extend** → free longer window. C2 blocks it in the UI, but that is **not durable** (API-direct clients bypass it).
+  - **[MONEY]** `adminDiscountAmount` omitted from the removal reprice (both money reviewers independently confirmed no over-refund today).
+  - `getTabCounts` / `_applyTabFilter` **billed-date semantics** — a **product call, not a defect**; needs Mike to define intended behavior before anyone builds.
+  - `nonReadyDigestJob.js:92` — low, self-heals.
+  - `BikePickerModal.jsx` renders hand-rolled settlement copy as a bare `<p>` — should point at the shared `SettlementNotice`/`AlertBox` (cosmetic; same class as the C2 Fix-3 that already landed).
+- **Notes**: Do **not** file these as separate FRs — they were deliberately consolidated into one entry because splitting them is what made the parent workstream feel endless. The three roots (①②③) should be scoped together; the smaller items are cheap riders once the roots land. **Prod caveat**: prod runs the monolithic `reservationService.js`, so any fix here needs the same hand-port treatment as the mid-rental-edit batch (see `staging-prod-module-refactor-divergence`).
 
 <!-- Format: ### FR-NNN: Title  +  **Repo(s)/area** tag -->
 <!-- Status: open | under-review | incorporated | declined -->
