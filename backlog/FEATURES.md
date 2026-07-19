@@ -18,11 +18,24 @@ _Migrated from `fleetmanager-reservations/docs/FEATURE_REQUESTS.md` on 2026-06-1
 - Add with `/feature add <description>` (size-checked — small/defined work goes to `/todo`).
 - Every request carries a **Repo(s)/area** tag so the cross-repo list stays scannable.
 - `/feature review` re-prioritizes and checks whether items should move to a repo's `MASTER_PLAN.md` or down to `/todo`.
-- FR IDs are a single shared sequence across all repos. Next free ID: **FR-068**.
+- FR IDs are a single shared sequence across all repos. Next free ID: **FR-069**.
 
 ---
 
 ## Open Requests
+
+### FR-068: Analytics period metrics — MTD / month / quarter / YTD / YoY / by-year / all-time (both dashboards, unified date-range)
+- **Repo(s)/area**: cross-repo — reservations (backend, base `staging`) + FM V3 (frontend, base `main`)
+- **Status**: open (Mike parked to the backlog 2026-07-19 — was scoped & sized live, then parked before build)
+- **Priority**: **medium** — real reporting gap (no current-month/quarter/year/all-time view today), but no live money/incident pressure. FR-066 and FR-067 (money, live) outrank it.
+- **Phase-fit**: multi-PR; **already sized `ROUTE: PM`, 7 chunks** by project-evaluator — will re-enter via `/pm`, not `/letsbuild` solo. Money read path → `money-concurrency-reviewer` on P2/P3/S5 final heads.
+- **Description**: FM reservations analytics can't express a reporting **period**. Add MTD / calendar month / quarter / YTD / year-over-year / by-year / all-time selection to the financial metrics **and** the transactions table, across **both** the Analytics (`/reservations/analytics`) and Financial Reports (`/reservations/financial-reports`) dashboards, on **one** unified date-range implementation.
+- **Root cause (one sentence)**: there is no shared notion of a reporting period — date logic is duplicated three ways (analytics fleet-local DST-safe / legacy `/payments/report` naive-UTC / `PaymentReport.jsx` browser-TZ) behind a hard 366-day cap (`analytics.js:53` `MAX_RANGE_DAYS`), so calendar-aligned and multi-year periods are unrepresentable and identical dates yield different totals on different tabs.
+- **Start here, do NOT re-derive — fully scoped already**: master plan at `~/.claude/plans/analytics-period-metrics-master-plan.md`; 7 dev briefs + status at `~/.claude/pm/analytics-period-metrics/` (chunks P1 resolver → P2 DB-side aggregate → P3 date-range unification → P4 cap-lift+YoY envelope → S5 transactions/pagination/auth → P6 PeriodSelector → P7 wiring). *(These live under `~/.claude` — Mac-local, not git-synced; if resuming on another machine, regenerate from this FR + the linked plan.)*
+- **Decisions locked by Mike (2026-07-19, do NOT relitigate)**: (1) shared period component across BOTH surfaces + unify the three date-range impls onto fleet-local DST-safe; (2) lift `MAX_RANGE_DAYS` + **measure at prod scale before** building any rollup/materialized table; (3) **MANAGER-gate** `/payments/report` (currently serves decrypted payment PII behind any-role `authorizeFleet`) — audit non-manager consumers before flipping; (4) Rezo **imported** pre-launch history renders as a **separate series**, not merged into live revenue.
+- **Sharp risks (found by project-evaluator, must survive to build)**: the aggregate path is `findMany`+JS-reduce, not a DB aggregate — uncapping it as-is is an **OOM**, so P2 (DB-side `groupBy`, push `source !== 'migration'` into the `where`) is a **hard prerequisite** to P4's cap-lift. P3's unification **moves a FULL DAY of revenue** into every payments report (legacy `lte: new Date(to)` parses UTC-midnight → last day currently EXCLUDED) — before/after capture on a real staging fleet is an acceptance requirement, and Mike must see it before prod. Prod promotion of anything touching `routes/reservations.js` is a **hand-port** (prod monolith vs staging split), not a cherry-pick. Prod pre-deploy money tests are vacuous without postgres — staging behavioral verify is the real gate.
+- **Out of scope (recommended, NOT approved)**: CSV/XLSX export of a period's transactions; MoM/QoQ deltas; location breakdown row on the financial summary. Surface for approval at re-scope, don't auto-build.
+- **Requested**: 2026-07-19
 
 ### FR-066: Public booking cart — server-quote the cart (kill the client price mirror)
 - **Repo(s)/area**: reservations — backend (new public cart-quote endpoint) + frontend (public booking cart consumes it; delete the client mirror)
