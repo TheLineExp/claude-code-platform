@@ -18,11 +18,20 @@ _Migrated from `fleetmanager-reservations/docs/FEATURE_REQUESTS.md` on 2026-06-1
 - Add with `/feature add <description>` (size-checked — small/defined work goes to `/todo`).
 - Every request carries a **Repo(s)/area** tag so the cross-repo list stays scannable.
 - `/feature review` re-prioritizes and checks whether items should move to a repo's `MASTER_PLAN.md` or down to `/todo`.
-- FR IDs are a single shared sequence across all repos. Next free ID: **FR-069**.
+- FR IDs are a single shared sequence across all repos. Next free ID: **FR-070**.
 
 ---
 
 ## Open Requests
+
+### FR-069: Preauth checkout capture/mode hardening — clientSecret-based funnel refactor
+- **Repo(s)/area**: reservations (frontend funnel + backend `/create-intent`), base `staging`
+- **Status**: open (Mike scheduled 2026-07-22 as the proper root-cause follow-up to the deposit-mode P1 hotfix PR #1719 — explicitly NOT rushed)
+- **Priority**: medium — MONEY-correctness, but all cases fail CLOSED and NO preauth fleet is live today (Suncadia is deposit). Rises to high the moment a preauth fleet is enabled, esp. for advance bookings (case 3 below).
+- **Phase-fit**: new phase — payments/checkout hardening
+- **Requested**: 2026-07-22
+- **Description**: The public booking funnel mounts Stripe Elements in DEFERRED mode (`mode:'payment'`, no clientSecret) and must GUESS `capture_method`/mode from the clock BEFORE the PaymentIntent exists, so it mismatches the backend PI in 3 preauth-only cases: (1) reused-PI on decline-retry across the 24h/7d boundary within the ~30-min hold window (Codex P2 on #1719; astronomically narrow — hold-window-scoped idempotency key); (2) idle cart crossing the boundary (narrow); (3) preauth booking >7 days out → backend mints a SetupIntent (`payments.js` `useSetupIntent`) while the funnel Elements is `mode:'payment'` → `confirmSetup` mismatch (the ONLY non-narrow case — any advance preauth booking). Fix: refactor the funnel to clientSecret-based — create the PI at checkout time and mount Elements with `{clientSecret}` (exactly how `ResumeBookingCard` already works and why it's immune), so Stripe reads `capture_method` + mode FROM the PI and the whole mirror-and-mismatch class disappears. Also removes the `funnelCaptureMethod` mirror helper (`frontend/src/utils/paymentCapture.js`) shipped for the deposit P1 in #1719.
+- **Notes**: BLAST RADIUS = core checkout confirm flow (deferred→clientSecret): reservation+PI created earlier (before card fill), `pending_payment` lifecycle, abandon-cart handling, all 4 confirm branches. MONEY-path — needs money-concurrency + parity + outside review. Supersedes the deferred+mirror deposit fix in #1719 (deposit stays correct either way — it's clock-independent). Refs: `backend/src/routes/payments.js:300-489` (create-intent reuse + setup branches), `CheckoutSection.jsx` confirm flow, `ResumeBookingCard.jsx:199-207` (the clientSecret pattern to mirror). Likely ≥2-PR → route via `/pm` or a focused `/letsbuild`.
 
 ### FR-068: Analytics period metrics — MTD / month / quarter / YTD / YoY / by-year / all-time (both dashboards, unified date-range)
 - **Repo(s)/area**: cross-repo — reservations (backend, base `staging`) + FM V3 (frontend, base `main`)
